@@ -17,10 +17,12 @@ class Sequenser : public Platform::Application {
 
         void drawEvent() override;
         void drawButtons();
-        void drawCanvas();
+        void drawEditor();
         void drawTransport();
         void drawShapes();
         void drawTimeline();
+
+        auto dpiScaling() const -> Vector2;
 
         void viewportEvent(ViewportEvent& event) override;
 
@@ -36,27 +38,33 @@ class Sequenser : public Platform::Application {
     private:
         ImGuiIntegration::Context _imgui{ NoCreate };
 
-        bool _playing = false;
-        Vector2i _range { 0, 100 };
-        unsigned int _currentTime = 0;
-        unsigned int _maxTime = 100;
+        bool _playing { true };
+        Vector2i _range { 0, 250 };
+        int _currentTime = 0;
         bool _showRed = false;
         bool _showGreen = false;
         bool _showBlue = false;
         Vector2i _redPos { 0, 0 };
         Vector2i _greenPos { 100, 0 };
         Vector2i _bluePos { 200, 0 };
+        Vector2 _dpiScaling { 1.0f, 1.0f };
+        float _zoom { 130.0f };
+        int _stride { 3 };
 
-        std::unordered_map<unsigned int, Vector2i> _redChannel;
-        std::unordered_map<unsigned int, Vector2i> _greenChannel;
-        std::unordered_map<unsigned int, Vector2i> _blueChannel;
+        std::unordered_map<int, Vector2i> _redChannel;
+        std::unordered_map<int, Vector2i> _greenChannel;
+        std::unordered_map<int, Vector2i> _blueChannel;
 };
 
 
 Sequenser::Sequenser(const Arguments& arguments): Platform::Application{arguments,
     Configuration{}.setTitle("Sequenser")
+                   .setSize({1600, 900})
                    .setWindowFlags(Configuration::WindowFlag::Resizable)}
 {
+    // Use virtual scale, rather than physical
+    glfwGetWindowContentScale(this->window(), &_dpiScaling.x(), &_dpiScaling.y());
+
     const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
     glfwSetWindowPos(this->window(),
         (mode->width / 2) - (windowSize().x() / 2),
@@ -70,11 +78,27 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
 
     this->setSwapInterval(1);  // VSync
 
+    // IMPORTANT: In order to add a new font, we need to
+    // first create an ImGui context. But, it has to happen
+    // **before** creating the ImGuiIntegration::Context.
+    ImGui::CreateContext();
+
+    auto& io = ImGui::GetIO();
+    io.Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * _dpiScaling.x());
+
     _imgui = ImGuiIntegration::Context(
+
+        // Note, in order for the newly added font to remain, we'll need to
+        // pass the current context we just created back into the integration.
+        // Your code would run without this, but would also throw your font away.
+        *ImGui::GetCurrentContext(),
+
         Vector2{ windowSize() } / dpiScaling(),
-        windowSize(),
-        framebufferSize()
+        windowSize(), framebufferSize()
     );
+
+    // Shouldn't be, but is, necessary
+    ImGui::SetCurrentContext(_imgui.context());
 
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
@@ -87,6 +111,9 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
         GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 }
+
+
+auto Sequenser::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
 using SmartButtonState = int;
@@ -138,7 +165,7 @@ void Sequenser::drawButtons() {
         static SmartButtonState blue { 0 };
         auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
 
-        SmartButton("Click me", red, size); ImGui::SameLine();
+        SmartButton("Red", red, size); ImGui::SameLine();
         SmartButton("Green", green, size); ImGui::SameLine();
         SmartButton("Blue", blue, size);
 
@@ -192,108 +219,160 @@ void Sequenser::drawButtons() {
 }
 
 
-void Sequenser::drawCanvas() {
-    ImGui::Begin("Canvas", nullptr);
+void Sequenser::drawEditor() {
+    ImGui::Begin("Editor", nullptr);
     {
         auto* painter = ImGui::GetWindowDrawList();
         const auto& style = ImGui::GetStyle();
 
-        ImVec2 size = ImGui::GetWindowSize();
+        ImVec2 windowSize = ImGui::GetWindowSize();
         auto tmlCrn = ImGui::GetWindowPos();
         auto tmlHgt = 50.0f;
         auto seqCrn = ImGui::GetWindowPos();
+        float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
+
+        tmlCrn.x += 5.0f;
+        seqCrn.x += 5.0f;
         seqCrn.y += tmlHgt + 20.0f;
 
+        int stride = _stride * 5;  // How many frames to skip drawing
+        float zoom = _zoom / _stride;
+        int minTime = _range.x() / stride;
+        int maxTime = _range.y() / stride;
+        auto bright = ImColor(1.0f, 1.0f, 1.0f, 1.0f);
+        auto mid = ImColor(0.2f, 0.2f, 0.2f, 1.0f);
+        auto dark = ImColor(0.1f, 0.1f, 0.1f, 1.0f);
+
         auto timeline = [&]() {
-            auto white = ImColor(0.3f, 0.3f, 0.3f, 1.0f);
+            for (int time = minTime; time < maxTime + 1; time++) {
+                const auto xMin = tmlCrn.x + time * zoom;
+                const auto yMin = tmlCrn.y;
+                const auto yMax = tmlCrn.y + tmlHgt;
 
-            int max = _range.y() / 10;
-            for (int time = 0; time < max + 1; time++) {
-                const auto coarseTime = time * 10;
-                const auto spacing = 50.0f;
-                const auto x = tmlCrn.x + spacing * time;
-                const auto y = tmlCrn.y + tmlHgt;
-                painter->AddLine(ImVec2(x, tmlCrn.y), ImVec2(x, y), white);
-                painter->AddText(ImVec2(x + 5.0f, tmlCrn.y + 20.0f), white, std::to_string(coarseTime).c_str());
+                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), mid);
+                painter->AddText(ImVec2(xMin + 5.0f, yMin + 20.0f), bright, std::to_string(time * stride).c_str());
 
-                for (int z = 0; z < 4; z++) {
-                    const auto innerSpacing = spacing / 5.0f;
+                for (int z = 0; z < 5 - 1; z++) {
+                    const auto innerSpacing = zoom / 5;
                     auto subline = innerSpacing * (z + 1);
-                    painter->AddLine(ImVec2(x + subline, tmlCrn.y + 35), ImVec2(x + subline, y), white);
+                    painter->AddLine(ImVec2(xMin + subline, yMin + 35), ImVec2(xMin + subline, yMax), dark);
+                }
+            }
+        };
+
+        auto horizontalBar = [&]() {
+            const auto xMin = tmlCrn.x;
+            const auto xMax = tmlCrn.x + windowSize.x;
+            const auto yMin = tmlCrn.y + tmlHgt + 10.0f;
+            const auto yMax = tmlCrn.y + tmlHgt + 10.0f;
+
+            const auto color = ImColor(0.0f, 0.0f, 0.0f, 0.5f);
+            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMax, yMax), color, 5.0f);
+        };
+
+        auto verticalGrid = [&]() {
+            for (int time = minTime; time < maxTime + 1; time++) {
+                const auto xMin = seqCrn.x + time * zoom;
+                const auto yMin = seqCrn.y;
+                const auto yMax = seqCrn.y + windowSize.y;
+
+                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), mid);
+
+                for (int z = 0; z < 5 - 1; z++) {
+                    const auto innerSpacing = zoom / 5;
+                    auto subline = innerSpacing * (z + 1);
+                    painter->AddLine(ImVec2(xMin + subline, yMin), ImVec2(xMin + subline, yMax), dark);
                 }
             }
         };
 
         auto currentTime = [&]() {
-            auto white = ImColor(1.0f, 1.0f, 1.0f, 1.0f);
-            const auto spacing = 50.0f;
-            const auto minX = tmlCrn.x + _currentTime * 5.0f + 5.0f;
-            const auto minY = tmlCrn.y;
-            const auto maxY = minY + size.y;
-            painter->AddLine(ImVec2(minX, minY), ImVec2(minX, maxY), white, 2.0f);
+            auto color = ImColor(1.0f, 0.5f, 0.5f, 1.0f);
+            const auto xMin = tmlCrn.x + _currentTime * zoom / stride;
+            const auto yMin = tmlCrn.y;
+            const auto yMax = yMin + windowSize.y;
+            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), color, 2.0f);
 
-        };
-
-        auto verticalGrid = [&]() {
-            auto white = ImColor(0.3f, 0.3f, 0.3f, 1.0f);
-            auto gray = ImColor(0.1f, 0.1f, 0.1f, 1.0f);
-
-            for (int i = 0; i < 10 + 1; i++) {
-                const auto spacing = 50.0f;
-                const auto x = seqCrn.x + spacing * i;
-                const auto y = seqCrn.y + size.y;
-                painter->AddLine(ImVec2(x, seqCrn.y), ImVec2(x, y), white);
-
-                for (int z = 0; z < 5; z++) {
-                    const auto innerSpacing = spacing / 5.0f;
-                    auto subline = innerSpacing * (z + 1);
-                    painter->AddLine(ImVec2(x + subline, seqCrn.y), ImVec2(x + subline, y), gray);
-                }
-            }
         };
 
         auto horizontalGrid = [&]() {
             ImColor color { 1.0f, 1.0f, 1.0f, 0.05f };
-            float lineHeight = ImGui::GetTextLineHeight();
-            lineHeight += style.ItemSpacing.y;
 
             float scrollOffsetH = ImGui::GetScrollX();
             float scrollOffsetV = ImGui::GetScrollY();
             float scrolledOutLines = floorf(scrollOffsetV / lineHeight);
             scrollOffsetV -= lineHeight * scrolledOutLines;
 
-            ImVec2 clipRectMin(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y);
-            ImVec2 clipRectMax(
-                clipRectMin.x + ImGui::GetWindowWidth(),
-                clipRectMin.y + ImGui::GetWindowHeight()
-            );
+            ImVec2 clipRectMin { seqCrn.x, seqCrn.y };
+            ImVec2 clipRectMax {
+                clipRectMin.x + windowSize.x,
+                clipRectMin.y + windowSize.y
+            };
 
             if (ImGui::GetScrollMaxX() > 0) {
                 clipRectMax.y -= style.ScrollbarSize;
             }
 
-            painter->PushClipRect(clipRectMin, clipRectMax);
+            float yMin = seqCrn.y - scrollOffsetV + ImGui::GetCursorPosY();
+            float yMax = clipRectMax.y - scrollOffsetV + lineHeight;
+            float xMin = seqCrn.x;
+            float xMax = seqCrn.x + windowSize.x;
 
             bool isOdd = (static_cast<int>(scrolledOutLines) % 2) == 0;
-
-            float yMin = clipRectMin.y - scrollOffsetV + ImGui::GetCursorPosY() + tmlHgt + 20.0f;
-            float yMax = clipRectMax.y - scrollOffsetV + lineHeight;
-            float xMin = clipRectMin.x + scrollOffsetH + ImGui::GetWindowContentRegionMin().x;
-            float xMax = clipRectMin.x + scrollOffsetH + ImGui::GetWindowContentRegionMax().x;
-
             for (float y = yMin; y < yMax; y += lineHeight, isOdd = !isOdd) {
-                if (isOdd) {
-                    painter->AddRectFilled({ xMin, y - style.ItemSpacing.y + 1 }, { xMax, y + lineHeight - 1 }, color);
-                }
+                if (isOdd) painter->AddRectFilled(
+                    { xMin, y },
+                    { xMax, y + lineHeight - 1 },
+                    color
+                );
             }
+        };
 
-            painter->PopClipRect();
+        auto keys = [&]() {
+            int yOffset = 0;
+            for (auto channel : { _redChannel, _greenChannel, _blueChannel }) {
+                for (auto [time, pos] : channel) {
+                    float xMin = time * zoom / stride;
+                    float xMax = xMin + zoom / stride;
+                    float yMin = 0;
+                    float yMax = lineHeight;
+
+                    static ImColor fill;
+                    static ImColor stroke;
+
+                    if (yOffset == 0) {
+                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(0.0f), 1.0f, 0.5f)));
+                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(0.0f), 1.0f, 1.5f)));
+                    }
+                    if (yOffset == 1) {
+                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(90.0f), 1.0f, 0.5f)));
+                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(90.0f), 1.0f, 1.0f)));
+                    }
+                    if (yOffset == 2) {
+                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(180.0f), 1.0f, 0.5f)));
+                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(180.0f), 1.0f, 1.0f)));
+                    }
+
+                    xMin += seqCrn.x;
+                    xMax += seqCrn.x;
+                    yMin += seqCrn.y + (lineHeight * yOffset);
+                    yMax += seqCrn.y + (lineHeight * yOffset);
+
+                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax }, fill);
+                    painter->AddRect({ xMin, yMin }, { xMax, yMax }, stroke);
+                }
+
+                yOffset += 1;
+            }
         };
 
         timeline();
         horizontalGrid();
+        horizontalBar();
         verticalGrid();
+        keys();
         currentTime();
+
     }
     ImGui::End();
 }
@@ -303,6 +382,10 @@ void Sequenser::drawTransport() {
     ImGui::Begin("Transport", nullptr);
     {
         if (ImGui::Button("Play")) _playing ^= true;
+        ImGui::SameLine();
+        if (ImGui::Button("<")) _currentTime -= 1;
+        ImGui::SameLine();
+        if (ImGui::Button(">")) _currentTime += 1;
 
         ImGui::SameLine();
         if (ImGui::Button("Stop")) {
@@ -317,7 +400,19 @@ void Sequenser::drawTransport() {
             _blueChannel.clear();
         }
 
-        ImGui::DragInt2("Range", _range.data());
+        ImGui::DragInt("Time", &_currentTime);
+        if (ImGui::DragInt2("Range", _range.data())) {
+            if (_currentTime < _range.x()) {
+                _currentTime = _range.x();
+            }
+
+            if (_currentTime > _range.y()) {
+                _currentTime = _range.y();
+            }
+        }
+
+        ImGui::SliderFloat("Zoom", &_zoom, 5.0f, 200.0f);
+        ImGui::SliderInt("Stride", &_stride, 1, 5);
     }
     ImGui::End();
 }
@@ -410,7 +505,7 @@ void Sequenser::drawEvent() {
     if (ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput && isTextInputActive()) stopTextInput();
 
-    drawCanvas();
+    drawEditor();
     drawTransport();
     drawButtons();
     drawShapes();
@@ -438,7 +533,7 @@ void Sequenser::drawEvent() {
 void Sequenser::viewportEvent(ViewportEvent& event) {
     GL::defaultFramebuffer.setViewport({{}, event.framebufferSize()});
 
-    _imgui.relayout(Vector2{event.windowSize()}/event.dpiScaling(),
+    _imgui.relayout(Vector2{ event.windowSize() } / dpiScaling(),
         event.windowSize(), event.framebufferSize());
 }
 
