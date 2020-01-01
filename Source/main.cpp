@@ -1,4 +1,6 @@
 #include <string>
+#include <iostream>
+#include <map>
 #include <unordered_map>
 
 #include <Magnum/Math/Color.h>
@@ -9,6 +11,15 @@
 
 using namespace Magnum;
 using namespace Math::Literals;
+
+
+struct Event {
+    enum Type {
+        On,
+        Off
+    } type;
+    int time;
+};
 
 
 class Sequenser : public Platform::Application {
@@ -38,8 +49,9 @@ class Sequenser : public Platform::Application {
     private:
         ImGuiIntegration::Context _imgui{ NoCreate };
 
+        bool _running { true };
         bool _playing { true };
-        Vector2i _range { 0, 250 };
+        Vector2i _range { 0, 100 };
         int _currentTime = 0;
         bool _showRed = false;
         bool _showGreen = false;
@@ -54,6 +66,10 @@ class Sequenser : public Platform::Application {
         std::unordered_map<int, Vector2i> _redChannel;
         std::unordered_map<int, Vector2i> _greenChannel;
         std::unordered_map<int, Vector2i> _blueChannel;
+
+        std::vector<Event> _redEvents;
+        std::vector<Event> _greenEvents;
+        std::vector<Event> _blueEvents;
 };
 
 
@@ -70,11 +86,6 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
         (mode->width / 2) - (windowSize().x() / 2),
         (mode->height / 2) - (windowSize().y() / 2)
     );
-
-    Debug() << "Window size:" << windowSize();
-    Debug() << "Framebuffer size:" << framebufferSize();
-    Debug() << "DPI Scaling:" << dpiScaling();
-    Debug() << "ImGui" << IMGUI_VERSION;
 
     this->setSwapInterval(1);  // VSync
 
@@ -102,6 +113,7 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
 
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
+    ImGui::StyleColorsLight();
 
     /* Set up proper blending to be used by ImGui. There's a great chance
        you'll need this exact behavior for the rest of your scene. If not, set
@@ -172,6 +184,7 @@ void Sequenser::drawButtons() {
         if (red & SmartButtonState_Pressed) {
             Debug() << "On event..";
             _showRed = true;
+            _redEvents.push_back({ Event::On, _currentTime });
         }
 
         else if (red & SmartButtonState_Dragged) {
@@ -182,11 +195,13 @@ void Sequenser::drawButtons() {
         else if (red & SmartButtonState_Released) {
             Debug() << "Off event..";
             _showRed = false;
+            _redEvents.push_back({ Event::Off, _currentTime });
         }
 
         if (green & SmartButtonState_Pressed) {
             Debug() << "On event..";
             _showGreen = true;
+            _greenEvents.push_back({ Event::On, _currentTime });
         }
 
         else if (green & SmartButtonState_Dragged) {
@@ -197,11 +212,13 @@ void Sequenser::drawButtons() {
         else if (green & SmartButtonState_Released) {
             Debug() << "Off event..";
             _showGreen = false;
+            _greenEvents.push_back({ Event::Off, _currentTime });
         }
 
         if (blue & SmartButtonState_Pressed) {
             Debug() << "On event..";
             _showBlue = true;
+            _blueEvents.push_back({ Event::On, _currentTime });
         }
 
         else if (blue & SmartButtonState_Dragged) {
@@ -212,8 +229,8 @@ void Sequenser::drawButtons() {
         else if (blue & SmartButtonState_Released) {
             Debug() << "Off event..";
             _showBlue = false;
+            _blueEvents.push_back({ Event::Off, _currentTime });
         }
-
     }
     ImGui::End();
 }
@@ -330,36 +347,51 @@ void Sequenser::drawEditor() {
 
         auto keys = [&]() {
             int yOffset = 0;
-            for (auto channel : { _redChannel, _greenChannel, _blueChannel }) {
-                for (auto [time, pos] : channel) {
-                    float xMin = time * zoom / stride;
-                    float xMax = xMin + zoom / stride;
-                    float yMin = 0;
-                    float yMax = lineHeight;
 
-                    static ImColor fill;
-                    static ImColor stroke;
+            for (auto* events : { &_redEvents, &_greenEvents, &_blueEvents }) {
+                for (std::size_t i=0; i < events->size(); ++i) {
+                    auto& event = events->at(i);
 
-                    if (yOffset == 0) {
-                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(0.0f), 1.0f, 0.5f)));
-                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(0.0f), 1.0f, 1.5f)));
+                    if (event.type == Event::On) {
+                        int startTime = event.time;
+                        int endTime = _currentTime;
+
+                        // Find end
+                        if (events->size() - 1 > i) {
+                            auto off = events->at(i + 1);
+                            endTime = off.time;
+                        }
+
+                        static ImColor fill;
+                        static ImColor stroke;
+                        static float transparency = 0.5f;
+
+                        if (yOffset == 0) {
+                            fill = ImColor::HSV(0.0f, 1.0f, 0.5f, transparency);
+                            stroke = ImColor::HSV(0.0f, 1.0f, 1.5f);
+                        }
+                        if (yOffset == 1) {
+                            fill = ImColor::HSV(0.33f, 1.0f, 0.5f, transparency);
+                            stroke = ImColor::HSV(0.33f, 1.0f, 1.0f);
+                        }
+                        if (yOffset == 2) {
+                            fill = ImColor::HSV(0.5f, 1.0f, 0.5f, transparency);
+                            stroke = ImColor::HSV(0.5f, 1.0f, 1.0f);
+                        }
+
+                        float xMin = static_cast<float>(startTime) * zoom / stride;
+                        float xMax = static_cast<float>(endTime) * zoom / stride;
+                        float yMin = 0;
+                        float yMax = lineHeight;
+
+                        xMin += seqCrn.x;
+                        xMax += seqCrn.x;
+                        yMin += seqCrn.y + (lineHeight * yOffset);
+                        yMax += seqCrn.y + (lineHeight * yOffset);
+
+                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax }, fill, 3.0f);
+                        painter->AddRect({ xMin, yMin }, { xMax, yMax }, stroke, 3.0f);
                     }
-                    if (yOffset == 1) {
-                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(90.0f), 1.0f, 0.5f)));
-                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(90.0f), 1.0f, 1.0f)));
-                    }
-                    if (yOffset == 2) {
-                        fill = ImColor(Color4::fromHsv(ColorHsv(Deg(180.0f), 1.0f, 0.5f)));
-                        stroke = ImColor(Color4::fromHsv(ColorHsv(Deg(180.0f), 1.0f, 1.0f)));
-                    }
-
-                    xMin += seqCrn.x;
-                    xMax += seqCrn.x;
-                    yMin += seqCrn.y + (lineHeight * yOffset);
-                    yMax += seqCrn.y + (lineHeight * yOffset);
-
-                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax }, fill);
-                    painter->AddRect({ xMin, yMin }, { xMax, yMax }, stroke);
                 }
 
                 yOffset += 1;
@@ -398,6 +430,10 @@ void Sequenser::drawTransport() {
             _redChannel.clear();
             _greenChannel.clear();
             _blueChannel.clear();
+
+            _redEvents.clear();
+            _greenEvents.clear();
+            _blueEvents.clear();
         }
 
         ImGui::DragInt("Time", &_currentTime);
@@ -505,6 +541,20 @@ void Sequenser::drawEvent() {
     if (ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput && isTextInputActive()) stopTextInput();
 
+    // Split events occurring past the end frame
+    for (auto* e : { &_redEvents, &_greenEvents, &_blueEvents }) {
+        if (e->size() > 0) {
+            auto last = e->back();
+
+            if (last.type == Event::On) {
+                if (last.time > _currentTime) {
+                    e->push_back({ Event::Off, _range.y() });
+                    e->push_back({ Event::On, _currentTime });
+                }
+            }
+        }
+    }
+
     drawEditor();
     drawTransport();
     drawButtons();
@@ -527,7 +577,10 @@ void Sequenser::drawEvent() {
     }
 
     swapBuffers();
-    redraw();
+
+    if (_running) {
+        redraw();
+    }
 }
 
 void Sequenser::viewportEvent(ViewportEvent& event) {
@@ -539,6 +592,8 @@ void Sequenser::viewportEvent(ViewportEvent& event) {
 
 void Sequenser::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Esc) this->exit();
+    if (event.key() == KeyEvent::Key::Enter) redraw();
+    if (event.key() == KeyEvent::Key::Backspace) _running ^= true;
     if(_imgui.handleKeyPressEvent(event)) return;
 }
 
