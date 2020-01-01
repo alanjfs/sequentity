@@ -22,19 +22,295 @@ struct Event {
 };
 
 
+static struct TimelineTheme_ {
+    ImColor background  { ImColor::HSV(0.0f, 0.0f, 0.250f) };
+    ImColor text        { ImColor::HSV(0.0f, 0.0f, 0.850f) };
+    ImColor dark        { ImColor::HSV(0.0f, 0.0f, 0.322f) };
+    ImColor mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
+
+    float height { 60.0f };
+
+} TimelineTheme;
+
+
+static struct EditorTheme_ {
+    ImColor background  { ImColor::HSV(0.0f, 0.00f, 0.651f) };
+    ImColor alternate   { ImColor::HSV(0.0f, 0.00f, 0.627f) };
+    ImColor text        { ImColor::HSV(0.0f, 0.00f, 0.200f) };
+    ImColor mid         { ImColor::HSV(0.0f, 0.00f, 0.600f) };
+    ImColor dark        { ImColor::HSV(0.0f, 0.00f, 0.498f) };
+    ImColor accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
+
+    ImColor redFill     { ImColor::HSV(0.0f, 0.75f, 0.75f) };
+    ImColor redStroke   { ImColor::HSV(0.0f, 0.0, 0.5) };
+
+    ImColor greenFill   { ImColor::HSV(0.33f, 0.75f, 0.75f) };
+    ImColor greenStroke { ImColor::HSV(0.33f, 0.0, 0.5) };
+
+    ImColor blueFill    { ImColor::HSV(0.50f, 0.75f, 0.75f) };
+    ImColor blueStroke  { ImColor::HSV(0.50f, 0.0, 0.5) };
+    
+    float radius { 0.0f };
+
+} EditorTheme;
+
+
+struct Sequencer {
+    void draw();
+
+    Vector2i range { 0, 250 };
+    int currentTime { 0 };
+    float zoom { 200.0f };
+    int stride { 3 };
+
+    // Temp
+    std::unordered_map<int, Vector2i> redChannel;
+    std::unordered_map<int, Vector2i> greenChannel;
+    std::unordered_map<int, Vector2i> blueChannel;
+
+    std::vector<Event> redEvents;
+    std::vector<Event> greenEvents;
+    std::vector<Event> blueEvents;
+};
+
+
+void Sequencer::draw() {
+    struct Style {
+        Style() {
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImU32(EditorTheme.background)); count++;
+        }
+
+        ~Style() {
+            ImGui::PopStyleColor(count);
+        }
+
+        int count { 0 };
+    };
+
+    Style t;
+    ImGui::Begin("Editor", nullptr);
+    {
+
+        auto* painter = ImGui::GetWindowDrawList();
+        const auto& style = ImGui::GetStyle();
+        ImVec2 windowSize = ImGui::GetWindowSize();
+        float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
+
+        /**
+         * @brief Sequencer divided into 3 panels
+         *
+         *     ___________________________
+         *    |       |                   |
+         *    |       |        B          |
+         *    |       |___________________|
+         *    |       |                   |
+         *    |   A   |                   |
+         *    |       |                   |
+         *    |       |        C          |
+         *    |       |                   |
+         *    |       |                   |
+         *    |_______|___________________|
+         *
+         */
+
+        auto A = ImGui::GetWindowPos();
+        auto B = ImGui::GetWindowPos();
+        auto C = ImGui::GetWindowPos();
+
+        B.x += 5.0f;
+        C.x += 5.0f;
+        C.y += TimelineTheme.height;
+
+        int stride_ = stride * 5;  // How many frames to skip drawing
+        float zoom_ = zoom / stride;
+        int minTime = range.x() / stride_;
+        int maxTime = range.y() / stride_;
+
+        auto drawTimelineBackground = [&]() {
+            auto bottomRight = ImVec2(B.x + windowSize.x, B.y + TimelineTheme.height);
+            painter->AddRectFilled(
+                B,
+                bottomRight,
+                TimelineTheme.background
+            );
+        };
+
+        auto drawEditorBackground = [&]() {
+            auto bottomRight = ImVec2(C.x + windowSize.x, C.y + windowSize.y);
+            painter->AddRectFilled(
+                C,
+                bottomRight,
+                EditorTheme.background
+            );
+        };
+
+        auto drawTimeline = [&]() {
+            for (int time = minTime; time < maxTime + 1; time++) {
+                const auto xMin = B.x + time * zoom_;
+                const auto yMin = B.y;
+                const auto yMax = B.y + TimelineTheme.height;
+
+                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), TimelineTheme.dark);
+                painter->AddText(ImVec2(xMin + 5.0f, yMin + lineHeight), TimelineTheme.text, std::to_string(time * stride_).c_str());
+
+                if (time == maxTime) break;
+
+                for (int z = 0; z < 5 - 1; z++) {
+                    const auto innerSpacing = zoom_ / 5;
+                    auto subline = innerSpacing * (z + 1);
+                    painter->AddLine(ImVec2(xMin + subline, yMin + 35), ImVec2(xMin + subline, yMax), TimelineTheme.mid);
+                }
+            }
+        };
+
+        auto drawHorizontalBar = [&]() {
+            const auto xMin = B.x;
+            const auto xMax = B.x + windowSize.x;
+            const auto yMin = B.y + TimelineTheme.height;
+            const auto yMax = B.y + TimelineTheme.height;
+
+            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMax, yMax), EditorTheme.dark, 1.0f);
+        };
+
+        auto drawVerticalGrid = [&]() {
+            for (int time = minTime; time < maxTime + 1; time++) {
+                const auto xMin = C.x + time * zoom_;
+                const auto yMin = C.y;
+                const auto yMax = C.y + windowSize.y;
+
+                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), EditorTheme.dark);
+
+                if (time == maxTime) break;
+
+                for (int z = 0; z < 5 - 1; z++) {
+                    const auto innerSpacing = zoom_ / 5;
+                    auto subline = innerSpacing * (z + 1);
+                    painter->AddLine(ImVec2(xMin + subline, yMin), ImVec2(xMin + subline, yMax), EditorTheme.mid);
+                }
+            }
+        };
+
+        auto drawCurrentTime = [&]() {
+            const auto xMin = B.x + currentTime * zoom_ / stride_;
+            const auto yMin = B.y;
+            const auto yMax = yMin + windowSize.y;
+            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), EditorTheme.accent, 2.0f);
+
+        };
+
+        /**
+         * @brief Filled bars in the background
+         *
+         *  __________________________________________________________
+         * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+         *  __________________________________________________________
+         * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+         *  __________________________________________________________
+         * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+         *  __________________________________________________________
+         * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+         *
+         */
+        auto drawHorizontalGrid = [&]() {
+            float yMin = C.y;
+            float yMax = C.y + windowSize.y;
+            float xMin = C.x;
+            float xMax = C.x + windowSize.x;
+
+            bool isOdd = false;
+            for (float y = yMin; y < yMax; y += lineHeight) {
+                isOdd ^= true;
+
+                if (isOdd) painter->AddRectFilled(
+                    { xMin, y },
+                    { xMax, y + lineHeight - 1 },
+                    EditorTheme.alternate
+                );
+            }
+        };
+
+        /**
+         * @brief MIDI-like representation of on/off events
+         *
+         *   _______       _______________
+         *  |_______|     |_______________|
+         *       _______________
+         *      |_______________|
+         *                          _________________________
+         *                         |_________________________|
+         *
+         */
+        auto drawEvents = [&]() {
+            int yOffset = 0;
+
+            for (auto* events : { &redEvents, &greenEvents, &blueEvents }) {
+                for (std::size_t i=0; i < events->size(); ++i) {
+                    auto& event = events->at(i);
+
+                    if (event.type == Event::On) {
+                        int startTime = event.time;
+                        int endTime = currentTime;
+
+                        // Find end
+                        if (events->size() - 1 > i) {
+                            auto off = events->at(i + 1);
+                            endTime = off.time;
+                        }
+
+                        ImColor fill = yOffset == 0 ? EditorTheme.redFill :
+                                       yOffset == 1 ? EditorTheme.greenFill :
+                                                      EditorTheme.blueFill;
+                        ImColor stroke = yOffset == 0 ? EditorTheme.redStroke :
+                                         yOffset == 1 ? EditorTheme.greenStroke :
+                                                        EditorTheme.blueStroke;
+
+                        float xMin = static_cast<float>(startTime) * zoom_ / stride_;
+                        float xMax = static_cast<float>(endTime) * zoom_ / stride_;
+                        float yMin = 0;
+                        float yMax = lineHeight;
+
+                        xMin += C.x;
+                        xMax += C.x;
+                        yMin += C.y + (lineHeight * yOffset);
+                        yMax += C.y + (lineHeight * yOffset);
+
+                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, 3.0f);
+                        painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, 3.0f);
+                    }
+                }
+
+                yOffset += 1;
+            }
+        };
+
+        drawTimelineBackground();
+        drawEditorBackground();
+        drawTimeline();
+        drawHorizontalGrid();
+        drawHorizontalBar();
+        drawVerticalGrid();
+        drawEvents();
+        drawCurrentTime();
+
+    }
+    ImGui::End();
+}
+
+
 class Sequenser : public Platform::Application {
     public:
         explicit Sequenser(const Arguments& arguments);
 
         void drawEvent() override;
-        void drawButtons();
-        void drawEditor();
-        void drawTransport();
         void drawShapes();
+        void drawThemeEditor();
+        void drawButtons();
+        void drawTransport();
         void drawTimeline();
 
-        auto dpiScaling() const -> Vector2;
+        void clear();
 
+        auto dpiScaling() const -> Vector2;
         void viewportEvent(ViewportEvent& event) override;
 
         void keyPressEvent(KeyEvent& event) override;
@@ -48,28 +324,23 @@ class Sequenser : public Platform::Application {
 
     private:
         ImGuiIntegration::Context _imgui{ NoCreate };
+        Sequencer _sequencer;
+
+        Vector2 _dpiScaling { 1.0f, 1.0f };
 
         bool _running { true };
         bool _playing { true };
-        Vector2i _range { 0, 100 };
-        int _currentTime = 0;
-        bool _showRed = false;
-        bool _showGreen = false;
-        bool _showBlue = false;
-        Vector2i _redPos { 0, 0 };
-        Vector2i _greenPos { 100, 0 };
-        Vector2i _bluePos { 200, 0 };
-        Vector2 _dpiScaling { 1.0f, 1.0f };
-        float _zoom { 130.0f };
-        int _stride { 3 };
 
-        std::unordered_map<int, Vector2i> _redChannel;
-        std::unordered_map<int, Vector2i> _greenChannel;
-        std::unordered_map<int, Vector2i> _blueChannel;
+        bool _showMetrics { false };
+        bool _showStyleEditor { false };
 
-        std::vector<Event> _redEvents;
-        std::vector<Event> _greenEvents;
-        std::vector<Event> _blueEvents;
+    bool _showRed { false };
+    bool _showGreen { false };
+    bool _showBlue { false };
+    Vector2i _redPos { 0, 0 };
+    Vector2i _greenPos { 100, 0 };
+    Vector2i _bluePos { 200, 0 };
+
 };
 
 
@@ -128,6 +399,17 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
 auto Sequenser::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
+void Sequenser::clear() {
+    _sequencer.redChannel.clear();
+    _sequencer.greenChannel.clear();
+    _sequencer.blueChannel.clear();
+
+    _sequencer.redEvents.clear();
+    _sequencer.greenEvents.clear();
+    _sequencer.blueEvents.clear();
+}
+
+
 using SmartButtonState = int;
 enum SmartButtonState_ {
     SmartButtonState_None = 0,
@@ -182,232 +464,53 @@ void Sequenser::drawButtons() {
         SmartButton("Blue", blue, size);
 
         if (red & SmartButtonState_Pressed) {
-            Debug() << "On event..";
             _showRed = true;
-            _redEvents.push_back({ Event::On, _currentTime });
+            _sequencer.redEvents.push_back({ Event::On, _sequencer.currentTime });
         }
 
         else if (red & SmartButtonState_Dragged) {
             _redPos += delta;
-            _redChannel[_currentTime] = _redPos;
+            _sequencer.redChannel[_sequencer.currentTime] = _redPos;
         }
 
         else if (red & SmartButtonState_Released) {
-            Debug() << "Off event..";
             _showRed = false;
-            _redEvents.push_back({ Event::Off, _currentTime });
+            _sequencer.redEvents.push_back({ Event::Off, _sequencer.currentTime });
         }
 
         if (green & SmartButtonState_Pressed) {
-            Debug() << "On event..";
             _showGreen = true;
-            _greenEvents.push_back({ Event::On, _currentTime });
+            _sequencer.greenEvents.push_back({ Event::On, _sequencer.currentTime });
         }
 
         else if (green & SmartButtonState_Dragged) {
             _greenPos += delta;
-            _greenChannel[_currentTime] = _greenPos;
+            _sequencer.greenChannel[_sequencer.currentTime] = _greenPos;
         }
 
         else if (green & SmartButtonState_Released) {
-            Debug() << "Off event..";
             _showGreen = false;
-            _greenEvents.push_back({ Event::Off, _currentTime });
+            _sequencer.greenEvents.push_back({ Event::Off, _sequencer.currentTime });
         }
 
         if (blue & SmartButtonState_Pressed) {
-            Debug() << "On event..";
             _showBlue = true;
-            _blueEvents.push_back({ Event::On, _currentTime });
+            _sequencer.blueEvents.push_back({ Event::On, _sequencer.currentTime });
         }
 
         else if (blue & SmartButtonState_Dragged) {
             _bluePos += delta;
-            _blueChannel[_currentTime] = _bluePos;
+            _sequencer.blueChannel[_sequencer.currentTime] = _bluePos;
         }
 
         else if (blue & SmartButtonState_Released) {
-            Debug() << "Off event..";
             _showBlue = false;
-            _blueEvents.push_back({ Event::Off, _currentTime });
+            _sequencer.blueEvents.push_back({ Event::Off, _sequencer.currentTime });
         }
     }
     ImGui::End();
 }
 
-
-void Sequenser::drawEditor() {
-    ImGui::Begin("Editor", nullptr);
-    {
-        auto* painter = ImGui::GetWindowDrawList();
-        const auto& style = ImGui::GetStyle();
-
-        ImVec2 windowSize = ImGui::GetWindowSize();
-        auto tmlCrn = ImGui::GetWindowPos();
-        auto tmlHgt = 50.0f;
-        auto seqCrn = ImGui::GetWindowPos();
-        float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
-
-        tmlCrn.x += 5.0f;
-        seqCrn.x += 5.0f;
-        seqCrn.y += tmlHgt + 20.0f;
-
-        int stride = _stride * 5;  // How many frames to skip drawing
-        float zoom = _zoom / _stride;
-        int minTime = _range.x() / stride;
-        int maxTime = _range.y() / stride;
-        auto bright = ImColor(1.0f, 1.0f, 1.0f, 1.0f);
-        auto mid = ImColor(0.2f, 0.2f, 0.2f, 1.0f);
-        auto dark = ImColor(0.1f, 0.1f, 0.1f, 1.0f);
-
-        auto timeline = [&]() {
-            for (int time = minTime; time < maxTime + 1; time++) {
-                const auto xMin = tmlCrn.x + time * zoom;
-                const auto yMin = tmlCrn.y;
-                const auto yMax = tmlCrn.y + tmlHgt;
-
-                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), mid);
-                painter->AddText(ImVec2(xMin + 5.0f, yMin + 20.0f), bright, std::to_string(time * stride).c_str());
-
-                for (int z = 0; z < 5 - 1; z++) {
-                    const auto innerSpacing = zoom / 5;
-                    auto subline = innerSpacing * (z + 1);
-                    painter->AddLine(ImVec2(xMin + subline, yMin + 35), ImVec2(xMin + subline, yMax), dark);
-                }
-            }
-        };
-
-        auto horizontalBar = [&]() {
-            const auto xMin = tmlCrn.x;
-            const auto xMax = tmlCrn.x + windowSize.x;
-            const auto yMin = tmlCrn.y + tmlHgt + 10.0f;
-            const auto yMax = tmlCrn.y + tmlHgt + 10.0f;
-
-            const auto color = ImColor(0.0f, 0.0f, 0.0f, 0.5f);
-            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMax, yMax), color, 5.0f);
-        };
-
-        auto verticalGrid = [&]() {
-            for (int time = minTime; time < maxTime + 1; time++) {
-                const auto xMin = seqCrn.x + time * zoom;
-                const auto yMin = seqCrn.y;
-                const auto yMax = seqCrn.y + windowSize.y;
-
-                painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), mid);
-
-                for (int z = 0; z < 5 - 1; z++) {
-                    const auto innerSpacing = zoom / 5;
-                    auto subline = innerSpacing * (z + 1);
-                    painter->AddLine(ImVec2(xMin + subline, yMin), ImVec2(xMin + subline, yMax), dark);
-                }
-            }
-        };
-
-        auto currentTime = [&]() {
-            auto color = ImColor(1.0f, 0.5f, 0.5f, 1.0f);
-            const auto xMin = tmlCrn.x + _currentTime * zoom / stride;
-            const auto yMin = tmlCrn.y;
-            const auto yMax = yMin + windowSize.y;
-            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), color, 2.0f);
-
-        };
-
-        auto horizontalGrid = [&]() {
-            ImColor color { 1.0f, 1.0f, 1.0f, 0.05f };
-
-            float scrollOffsetH = ImGui::GetScrollX();
-            float scrollOffsetV = ImGui::GetScrollY();
-            float scrolledOutLines = floorf(scrollOffsetV / lineHeight);
-            scrollOffsetV -= lineHeight * scrolledOutLines;
-
-            ImVec2 clipRectMin { seqCrn.x, seqCrn.y };
-            ImVec2 clipRectMax {
-                clipRectMin.x + windowSize.x,
-                clipRectMin.y + windowSize.y
-            };
-
-            if (ImGui::GetScrollMaxX() > 0) {
-                clipRectMax.y -= style.ScrollbarSize;
-            }
-
-            float yMin = seqCrn.y - scrollOffsetV + ImGui::GetCursorPosY();
-            float yMax = clipRectMax.y - scrollOffsetV + lineHeight;
-            float xMin = seqCrn.x;
-            float xMax = seqCrn.x + windowSize.x;
-
-            bool isOdd = (static_cast<int>(scrolledOutLines) % 2) == 0;
-            for (float y = yMin; y < yMax; y += lineHeight, isOdd = !isOdd) {
-                if (isOdd) painter->AddRectFilled(
-                    { xMin, y },
-                    { xMax, y + lineHeight - 1 },
-                    color
-                );
-            }
-        };
-
-        auto keys = [&]() {
-            int yOffset = 0;
-
-            for (auto* events : { &_redEvents, &_greenEvents, &_blueEvents }) {
-                for (std::size_t i=0; i < events->size(); ++i) {
-                    auto& event = events->at(i);
-
-                    if (event.type == Event::On) {
-                        int startTime = event.time;
-                        int endTime = _currentTime;
-
-                        // Find end
-                        if (events->size() - 1 > i) {
-                            auto off = events->at(i + 1);
-                            endTime = off.time;
-                        }
-
-                        static ImColor fill;
-                        static ImColor stroke;
-                        static float transparency = 0.5f;
-
-                        if (yOffset == 0) {
-                            fill = ImColor::HSV(0.0f, 1.0f, 0.5f, transparency);
-                            stroke = ImColor::HSV(0.0f, 1.0f, 1.5f);
-                        }
-                        if (yOffset == 1) {
-                            fill = ImColor::HSV(0.33f, 1.0f, 0.5f, transparency);
-                            stroke = ImColor::HSV(0.33f, 1.0f, 1.0f);
-                        }
-                        if (yOffset == 2) {
-                            fill = ImColor::HSV(0.5f, 1.0f, 0.5f, transparency);
-                            stroke = ImColor::HSV(0.5f, 1.0f, 1.0f);
-                        }
-
-                        float xMin = static_cast<float>(startTime) * zoom / stride;
-                        float xMax = static_cast<float>(endTime) * zoom / stride;
-                        float yMin = 0;
-                        float yMax = lineHeight;
-
-                        xMin += seqCrn.x;
-                        xMax += seqCrn.x;
-                        yMin += seqCrn.y + (lineHeight * yOffset);
-                        yMax += seqCrn.y + (lineHeight * yOffset);
-
-                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax }, fill, 3.0f);
-                        painter->AddRect({ xMin, yMin }, { xMax, yMax }, stroke, 3.0f);
-                    }
-                }
-
-                yOffset += 1;
-            }
-        };
-
-        timeline();
-        horizontalGrid();
-        horizontalBar();
-        verticalGrid();
-        keys();
-        currentTime();
-
-    }
-    ImGui::End();
-}
 
 
 void Sequenser::drawTransport() {
@@ -415,40 +518,37 @@ void Sequenser::drawTransport() {
     {
         if (ImGui::Button("Play")) _playing ^= true;
         ImGui::SameLine();
-        if (ImGui::Button("<")) _currentTime -= 1;
+        if (ImGui::Button("<")) _sequencer.currentTime -= 1;
         ImGui::SameLine();
-        if (ImGui::Button(">")) _currentTime += 1;
+        if (ImGui::Button(">")) _sequencer.currentTime += 1;
 
         ImGui::SameLine();
         if (ImGui::Button("Stop")) {
-            _currentTime = _range.x();
+            _sequencer.currentTime = _sequencer.range.x();
             _playing = false;
         }
 
         ImGui::SameLine();
         if (ImGui::Button("Clear")) {
-            _redChannel.clear();
-            _greenChannel.clear();
-            _blueChannel.clear();
-
-            _redEvents.clear();
-            _greenEvents.clear();
-            _blueEvents.clear();
+            clear();
         }
 
-        ImGui::DragInt("Time", &_currentTime);
-        if (ImGui::DragInt2("Range", _range.data())) {
-            if (_currentTime < _range.x()) {
-                _currentTime = _range.x();
+        ImGui::DragInt("Time", &_sequencer.currentTime);
+        if (ImGui::DragInt2("Range", _sequencer.range.data())) {
+            if (_sequencer.range.x() < 0) _sequencer.range.x() = 0;
+            if (_sequencer.range.y() < 5) _sequencer.range.y() = 5;
+
+            if (_sequencer.currentTime < _sequencer.range.x()) {
+                _sequencer.currentTime = _sequencer.range.x();
             }
 
-            if (_currentTime > _range.y()) {
-                _currentTime = _range.y();
+            if (_sequencer.currentTime > _sequencer.range.y()) {
+                _sequencer.currentTime = _sequencer.range.y();
             }
         }
 
-        ImGui::SliderFloat("Zoom", &_zoom, 5.0f, 200.0f);
-        ImGui::SliderInt("Stride", &_stride, 1, 5);
+        ImGui::SliderFloat("Zoom", &_sequencer.zoom, 5.0f, 200.0f);
+        ImGui::SliderInt("Stride", &_sequencer.stride, 1, 5);
     }
     ImGui::End();
 }
@@ -469,8 +569,8 @@ void Sequenser::drawShapes() {
 
         painter->AddRect(itl, ibr, col);
 
-        if (_redChannel.count(_currentTime)) {
-            auto redPos = _redChannel[_currentTime];
+        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
+            auto redPos = _sequencer.redChannel[_sequencer.currentTime];
             auto topLeft = Vector2(redPos);
             auto bottomRight = Vector2(redPos + shapeSize);
 
@@ -490,8 +590,8 @@ void Sequenser::drawShapes() {
 
         painter->AddRect(itl, ibr, col);
 
-        if (_greenChannel.count(_currentTime)) {
-            auto greenPos = _greenChannel[_currentTime];
+        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
+            auto greenPos = _sequencer.greenChannel[_sequencer.currentTime];
             auto topLeft = Vector2(greenPos);
             auto bottomRight = Vector2(greenPos + shapeSize);
 
@@ -511,8 +611,8 @@ void Sequenser::drawShapes() {
 
         painter->AddRect(itl, ibr, col);
 
-        if (_blueChannel.count(_currentTime)) {
-            auto bluePos = _blueChannel[_currentTime];
+        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
+            auto bluePos = _sequencer.blueChannel[_sequencer.currentTime];
             auto topLeft = Vector2(bluePos);
             auto bottomRight = Vector2(bluePos + shapeSize);
 
@@ -524,6 +624,36 @@ void Sequenser::drawShapes() {
     }
 }
 
+void Sequenser::drawThemeEditor() {
+    static bool open = true;
+
+    ImGui::Begin("Theme");
+    {
+        if (ImGui::CollapsingHeader("Timeline", &open)) {
+            ImGui::ColorEdit4("background", &TimelineTheme.background.Value.x);
+            ImGui::ColorEdit4("text", &TimelineTheme.text.Value.x);
+            ImGui::ColorEdit4("dark", &TimelineTheme.dark.Value.x);
+            ImGui::ColorEdit4("mid", &TimelineTheme.mid.Value.x);
+        }
+
+        if (ImGui::CollapsingHeader("Editor", &open)) {
+            ImGui::ColorEdit4("background##editor", &EditorTheme.background.Value.x);
+            ImGui::ColorEdit4("alternate##editor", &EditorTheme.alternate.Value.x);
+            ImGui::ColorEdit4("text##editor", &EditorTheme.text.Value.x);
+            ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.Value.x);
+            ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.Value.x);
+            ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.Value.x);
+            ImGui::ColorEdit4("redFill##editor", &EditorTheme.redFill.Value.x);
+            ImGui::ColorEdit4("redStroke##editor", &EditorTheme.redStroke.Value.x);
+            ImGui::ColorEdit4("greenFill##editor", &EditorTheme.greenFill.Value.x);
+            ImGui::ColorEdit4("greenStroke##editor", &EditorTheme.greenStroke.Value.x);
+            ImGui::ColorEdit4("blueFill##editor", &EditorTheme.blueFill.Value.x);
+            ImGui::ColorEdit4("blueStroke##editor", &EditorTheme.blueStroke.Value.x);
+        }
+    }
+    ImGui::End();
+}
+
 
 void Sequenser::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
@@ -531,34 +661,43 @@ void Sequenser::drawEvent() {
     _imgui.newFrame();
 
     if (_playing) {
-        _currentTime += 1;
+        _sequencer.currentTime += 1;
     }
 
-    if (_currentTime > _range.y()) {
-        _currentTime = _range.x();
+    if (_sequencer.currentTime > _sequencer.range.y()) {
+        _sequencer.currentTime = _sequencer.range.x();
     }
 
     if (ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput && isTextInputActive()) stopTextInput();
 
     // Split events occurring past the end frame
-    for (auto* e : { &_redEvents, &_greenEvents, &_blueEvents }) {
+    for (auto* e : { &_sequencer.redEvents, &_sequencer.greenEvents, &_sequencer.blueEvents }) {
         if (e->size() > 0) {
             auto last = e->back();
 
             if (last.type == Event::On) {
-                if (last.time > _currentTime) {
-                    e->push_back({ Event::Off, _range.y() });
-                    e->push_back({ Event::On, _currentTime });
+                if (last.time > _sequencer.currentTime) {
+                    e->push_back({ Event::Off, _sequencer.range.y() });
+                    e->push_back({ Event::On, _sequencer.currentTime });
                 }
             }
         }
     }
 
-    drawEditor();
+    _sequencer.draw();
     drawTransport();
     drawButtons();
     drawShapes();
+
+    if (_showMetrics) {
+        ImGui::ShowMetricsWindow(&_showMetrics);
+    }
+
+    if (_showStyleEditor) {
+        drawThemeEditor();
+        ImGui::ShowStyleEditor();
+    }
 
     _imgui.updateApplicationCursor(*this);
 
@@ -594,6 +733,9 @@ void Sequenser::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Esc) this->exit();
     if (event.key() == KeyEvent::Key::Enter) redraw();
     if (event.key() == KeyEvent::Key::Backspace) _running ^= true;
+    if (event.key() == KeyEvent::Key::Delete) clear();
+    if (event.key() == KeyEvent::Key::F1) _showMetrics ^= true;
+    if (event.key() == KeyEvent::Key::F2) _showStyleEditor ^= true;
     if(_imgui.handleKeyPressEvent(event)) return;
 }
 
