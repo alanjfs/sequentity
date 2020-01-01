@@ -1,4 +1,5 @@
 #include <string>
+#include <unordered_map>
 
 #include <Magnum/Math/Color.h>
 #include <Magnum/GL/DefaultFramebuffer.h>
@@ -45,6 +46,10 @@ class Sequenser : public Platform::Application {
         Vector2i _redPos { 0, 0 };
         Vector2i _greenPos { 100, 0 };
         Vector2i _bluePos { 200, 0 };
+
+        std::unordered_map<unsigned int, Vector2i> _redChannel;
+        std::unordered_map<unsigned int, Vector2i> _greenChannel;
+        std::unordered_map<unsigned int, Vector2i> _blueChannel;
 };
 
 
@@ -143,8 +148,8 @@ void Sequenser::drawButtons() {
         }
 
         else if (red & SmartButtonState_Dragged) {
-            Debug() << "Move event.." << delta;
             _redPos += delta;
+            _redChannel[_currentTime] = _redPos;
         }
 
         else if (red & SmartButtonState_Released) {
@@ -158,7 +163,8 @@ void Sequenser::drawButtons() {
         }
 
         else if (green & SmartButtonState_Dragged) {
-            Debug() << "Move event.." << Vector2(ImGui::GetIO().MouseDelta);
+            _greenPos += delta;
+            _greenChannel[_currentTime] = _greenPos;
         }
 
         else if (green & SmartButtonState_Released) {
@@ -172,7 +178,8 @@ void Sequenser::drawButtons() {
         }
 
         else if (blue & SmartButtonState_Dragged) {
-            Debug() << "Move event.." << Vector2(ImGui::GetIO().MouseDelta);
+            _bluePos += delta;
+            _blueChannel[_currentTime] = _bluePos;
         }
 
         else if (blue & SmartButtonState_Released) {
@@ -295,16 +302,20 @@ void Sequenser::drawCanvas() {
 void Sequenser::drawTransport() {
     ImGui::Begin("Transport", nullptr);
     {
-        if (ImGui::Button("Play")) {
-            _playing ^= true;
-        }
-        ImGui::SameLine();
+        if (ImGui::Button("Play")) _playing ^= true;
 
+        ImGui::SameLine();
         if (ImGui::Button("Stop")) {
             _currentTime = _range.x();
             _playing = false;
         }
+
         ImGui::SameLine();
+        if (ImGui::Button("Clear")) {
+            _redChannel.clear();
+            _greenChannel.clear();
+            _blueChannel.clear();
+        }
 
         ImGui::DragInt2("Range", _range.data());
     }
@@ -317,24 +328,68 @@ void Sequenser::drawShapes() {
     auto painter = ImGui::GetForegroundDrawList();
     Vector2i shapeSize { 100, 100 };
 
-    if (_showRed) {
+    {
         const ImU32 col = ImColor(1.0f, 0.0f, 0.0f, 1.0f);
-        auto topLeft = _redPos;
-        auto bottomRight = _redPos + shapeSize;
-        painter->AddRectFilled(ImVec2(topLeft.x(), topLeft.y()),
-                               ImVec2(bottomRight.x(), bottomRight.y()), col);
+        auto topLeft = Vector2(_redPos);
+        auto bottomRight = Vector2(_redPos + shapeSize);
+
+        auto itl = ImVec2(topLeft.x(), topLeft.y());
+        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+        painter->AddRect(itl, ibr, col);
+
+        if (_redChannel.count(_currentTime)) {
+            auto redPos = _redChannel[_currentTime];
+            auto topLeft = Vector2(redPos);
+            auto bottomRight = Vector2(redPos + shapeSize);
+
+            auto itl = ImVec2(topLeft.x(), topLeft.y());
+            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+            painter->AddRectFilled(itl, ibr, col);
+        }
     }
-    if (_showGreen) {
+
+    {
         const ImU32 col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
-        auto topLeft = ImVec2(110, 10);
-        auto bottomRight = ImVec2(150, 100);
-        painter->AddRectFilled(topLeft, bottomRight, col);
+        auto topLeft = Vector2(_greenPos);
+        auto bottomRight = Vector2(_greenPos + shapeSize);
+        auto itl = ImVec2(topLeft.x(), topLeft.y());
+        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+        painter->AddRect(itl, ibr, col);
+
+        if (_greenChannel.count(_currentTime)) {
+            auto greenPos = _greenChannel[_currentTime];
+            auto topLeft = Vector2(greenPos);
+            auto bottomRight = Vector2(greenPos + shapeSize);
+
+            auto itl = ImVec2(topLeft.x(), topLeft.y());
+            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+            painter->AddRectFilled(itl, ibr, col);
+        }
     }
-    if (_showBlue) {
+
+    {
         const ImU32 col = ImColor(0.0f, 0.0f, 1.0f, 1.0f);
-        auto topLeft = ImVec2(160, 10);
-        auto bottomRight = ImVec2(200, 100);
-        painter->AddRectFilled(topLeft, bottomRight, col);
+        auto topLeft = Vector2(_bluePos);
+        auto bottomRight = Vector2(_bluePos + shapeSize);
+        auto itl = ImVec2(topLeft.x(), topLeft.y());
+        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+        painter->AddRect(itl, ibr, col);
+
+        if (_blueChannel.count(_currentTime)) {
+            auto bluePos = _blueChannel[_currentTime];
+            auto topLeft = Vector2(bluePos);
+            auto bottomRight = Vector2(bluePos + shapeSize);
+
+            auto itl = ImVec2(topLeft.x(), topLeft.y());
+            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+            painter->AddRectFilled(itl, ibr, col);
+        }
     }
 }
 
