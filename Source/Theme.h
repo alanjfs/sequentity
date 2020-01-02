@@ -13,6 +13,10 @@ inline ImVec2 operator+(const ImVec2& vec, const ImVec2 value) {
     return ImVec2{ vec.x + value.x, vec.y + value.y };
 }
 
+inline ImVec2 operator-(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x - value.x, vec.y - value.y };
+}
+
 // inline ImColor operator*(const ImColor& vec, const float value) {
 //     return ImColor{ vec.r + value, vec.g + value, vec.b + value, vec.a };
 // }

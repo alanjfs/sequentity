@@ -27,12 +27,16 @@ struct Event {
     int time;
     int length;
 
+    Vector2i offset;
+    Vector2i init;
+    Vector2i last;
     std::vector<Vector2i> data;
 };
 
 using Events = std::vector<Event>;
 using Position = Vector2i;
 struct InitialPosition : Vector2i { using Vector2i::Vector2i; };
+struct StartPosition : Vector2i { using Vector2i::Vector2i; };
 struct Size : Vector2i { using Vector2i::Vector2i; };
 
 struct Color {
@@ -75,37 +79,28 @@ enum SmartButtonState_ {
     SmartButtonState_Hovered = 1 << 1,
     SmartButtonState_Pressed = 1 << 2,
     SmartButtonState_Dragged = 1 << 3,
-    SmartButtonState_Released = 1 << 4,
-    SmartButtonState_DoubleClicked = 1 << 5, // Not yet implemented
-    SmartButtonState_Idle
+    SmartButtonState_Released = 1 << 4
 };
 
 
-static SmartButtonState SmartButton(const char* label, SmartButtonState& previous, ImVec2 size = {0, 0}) {
-    bool released = ImGui::Button(label, size);
+static SmartButtonState SmartButton(const char* label, ImVec2 size = {0, 0}) {
+    bool useless = ImGui::Button(label, size);
 
-    const bool wasDragged = previous & SmartButtonState_Dragged;
-    const bool wasPressed = previous & SmartButtonState_Pressed;
+    // Return value doesn't take into account release
+    // when cursor is outside the bounds of the button.
 
-    SmartButtonState current { 0 };
-    if (released) current |= SmartButtonState_Released;
-    if (ImGui::IsItemActive()) current |= SmartButtonState_Pressed;
-    if (ImGui::IsItemHovered()) current |= SmartButtonState_Hovered;
+    SmartButtonState state { 0 };
+    if (ImGui::IsItemHovered()) state |= SmartButtonState_Hovered;
 
-    // Detect when button is dragged
-    if (current & SmartButtonState_Pressed) {
-        if (wasDragged || wasPressed) {
-            current = SmartButtonState_Dragged;
-        }
+    if (ImGui::IsItemActivated()) {
+        state |= SmartButtonState_Pressed;
+    } else if (ImGui::IsItemActive()) {
+        state |= SmartButtonState_Dragged;
+    } else if (ImGui::IsItemDeactivated()) {
+        state |= SmartButtonState_Released;
     }
 
-    // Detect release event, despite not happening within bounds of button
-    if ((wasPressed || wasDragged) && !ImGui::IsAnyMouseDown()) {
-        current = SmartButtonState_Released;
-    }
-
-    previous = current;
-    return current;
+    return state;
 }
 
 
@@ -143,7 +138,7 @@ void Sequencer::update() {
     }
 
     else {
-        Registry.view<Position, Events, Color>().each([&](auto& position, const auto& events, const auto& color) {
+        Registry.view<Position, Events, Color>().each([&](auto entity, auto& position, const auto& events, const auto& color) {
             /**  Find intersecting event, backwards
              *
              *               time
@@ -160,9 +155,12 @@ void Sequencer::update() {
             // Inbetween events, that's ok
             if (current == nullptr) return;
 
-            int index = currentTime - current->time;
-            position += current->data[index];
+            const int index = currentTime - current->time;
+            const auto value = current->data[index] - current->offset;
+            position = value;
         });
+
+        Registry.reset<StartPosition>();
     }
 
     previousTime = currentTime;
@@ -480,6 +478,7 @@ private:
 
     bool _running { true };
     bool _playing { true };
+    bool _relative { true };
 
     bool _showMetrics { false };
     bool _showStyleEditor { false };
@@ -681,6 +680,8 @@ void Application::drawTransport() {
         ImGui::SliderFloat("Zoom", &_sequencer.zoom, 20.0f, 400.0f);
         ImGui::DragFloat("Scroll", &_sequencer.scroll);
         ImGui::SliderInt("Stride", &_sequencer.stride, 1, 5);
+
+        ImGui::Checkbox("Relative", &_relative);
     }
     ImGui::End();
 }
@@ -698,36 +699,43 @@ void Application::drawShapes() {
 
         painter->AddCircleFilled(
             abscorner,
-            5.0f,
-            ImColor::HSV(0.0, 0.0, 1.0f)
+            10.0f,
+            ImColor::HSV(0.0f, 0.0f, 1.0f)
         );
     };
 
     auto currentTime = _sequencer.currentTime;
     ImGui::Begin("Shapes", nullptr);
     {
-        Registry.view<Name, Position, Size, Color, SmartButtonState>().each([&](
-                                                                    auto entity,
-                                                                    const auto& name,
-                                                                    const auto& position,
-                                                                    const auto& size,
-                                                                    const auto& color,
-                                                                    auto& state) {
+        Registry.view<Name, Position, Size, Color>().each([&](auto entity,
+                                                              const auto& name,
+                                                              const auto& position,
+                                                              const auto& size,
+                                                              const auto& color) {
             auto& events = Registry.get_or_assign<Events>(entity);
 
             static Event* current { nullptr };
 
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
-            auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
+
+            auto absolute = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
 
             ImGui::SetCursorPos(impos);
-            SmartButton(name.text, state, imsize);
+            auto state = SmartButton(name.text, imsize);
 
             if (state & SmartButtonState_Pressed) {
-                events.push_back({ Event::Red, currentTime, 1 });
+                Event event;
+
+                event.time = currentTime;
+                event.length = 1;
+                event.offset = absolute - position;
+                event.init = position;
+                event.last = position;
+                event.data.push_back(absolute);
+
+                events.push_back(event);
                 current = &events.back();
-                current->data.push_back({0, 0});
             }
 
             else if (state & SmartButtonState_Dragged) {
@@ -736,16 +744,19 @@ void Application::drawShapes() {
                 }
 
                 if (current != nullptr) {
-                    current->data.push_back(delta);
+                    current->data.push_back(absolute);
                     current->length += 1;
                 }
             }
 
             else if (state & SmartButtonState_Released) {
+                current->last = position;
                 current = nullptr;
             }
 
-            if (_sequencer.overlapping(events)) {
+            if (auto ovl = _sequencer.overlapping(events)) {
+                impos.x += ovl->offset.x();
+                impos.y += ovl->offset.y();
                 drawCursor(impos, color.fill);
             }
         });
