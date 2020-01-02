@@ -10,22 +10,10 @@
 #include <Magnum/Platform/GlfwApplication.h>
 
 #include <imgui_internal.h>
+#include "Theme.h"
 
 using namespace Magnum;
 using namespace Math::Literals;
-
-
-ImVec4 operator*(const ImVec4& vec, const float mult) {
-    return ImVec4{ vec.x * mult, vec.y * mult, vec.z * mult, vec.w };
-}
-
-ImVec2 operator+(const ImVec2& vec, const float value) {
-    return ImVec2{ vec.x + value, vec.y + value };
-}
-
-ImVec2 operator+(const ImVec2& vec, const ImVec2 value) {
-    return ImVec2{ vec.x + value.x, vec.y + value.y };
-}
 
 
 struct Event {
@@ -168,13 +156,9 @@ void Sequencer::draw() {
          *
          */
 
-        auto A = ImGui::GetWindowPos();
-        auto B = ImGui::GetWindowPos();
-        auto C = ImGui::GetWindowPos();
-
-        B.x += 5.0f;
-        C.x += 5.0f;
-        C.y += TimelineTheme.height;
+        auto A = ImGui::GetWindowPos() + ImVec2{ 5.0f, 15.0f };
+        auto B = ImGui::GetWindowPos() + ImVec2{ 5.0f, 15.0f };
+        auto C = B + ImVec2{ 0, TimelineTheme.height };
 
         int stride_ = stride * 5;  // How many frames to skip drawing
         float zoom_ = zoom / stride;
@@ -364,12 +348,13 @@ public:
     void drawEvent() override;
     void drawShapes();
     void drawThemeEditor();
-    void drawButtons();
+    // void drawButtons();
     void drawTransport();
     void drawTimeline();
     void drawCentralWidget();
+
     void clear();
-    void theme();
+    void updatePositions();
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -398,9 +383,13 @@ private:
     bool _showRed { false };
     bool _showGreen { false };
     bool _showBlue { false };
+
     Vector2i _redPos { 300, 50 };
     Vector2i _greenPos { 550, 50 };
     Vector2i _bluePos { 800, 50 };
+    Vector2i _redInitialPos { 300, 50 };
+    Vector2i _greenInitialPos { 550, 50 };
+    Vector2i _blueInitialPos { 800, 50 };
 
 };
 
@@ -427,7 +416,7 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     ImGui::CreateContext();
 
     auto& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * _dpiScaling.x());
+    io.Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * dpiScaling().x());
 
     _imgui = ImGuiIntegration::Context(
 
@@ -445,8 +434,9 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
-    // ImGui::StyleColorsLight();
-    theme();
+    
+    // Optional
+    Theme();
 
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;    // Enable Docking
     ImGui::GetIO().ConfigDockingWithShift = true;
@@ -526,69 +516,6 @@ void Application::drawCentralWidget() {
 }
 
 
-void Application::drawButtons() {
-    ImGui::Begin("Buttons", nullptr);
-    {
-        static const auto size = ImVec2(150, 40);
-        static SmartButtonState red { 0 };
-        static SmartButtonState green { 0 };
-        static SmartButtonState blue { 0 };
-        auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
-
-        SmartButton("Dragdoll", red, size); ImGui::SameLine();
-        SmartButton("Bendoll", green, size); ImGui::SameLine();
-        SmartButton("Blue", blue, size);
-
-        if (red & SmartButtonState_Pressed) {
-            _showRed = true;
-            _sequencer.redEvents.push_back({ Event::On, _sequencer.currentTime });
-        }
-
-        else if (red & SmartButtonState_Dragged) {
-            _redPos += delta;
-            _sequencer.redChannel[_sequencer.currentTime] = _redPos;
-        }
-
-        else if (red & SmartButtonState_Released) {
-            _showRed = false;
-            _sequencer.redEvents.push_back({ Event::Off, _sequencer.currentTime });
-        }
-
-        if (green & SmartButtonState_Pressed) {
-            _showGreen = true;
-            _sequencer.greenEvents.push_back({ Event::On, _sequencer.currentTime });
-        }
-
-        else if (green & SmartButtonState_Dragged) {
-            _greenPos += delta;
-            _sequencer.greenChannel[_sequencer.currentTime] = _greenPos;
-        }
-
-        else if (green & SmartButtonState_Released) {
-            _showGreen = false;
-            _sequencer.greenEvents.push_back({ Event::Off, _sequencer.currentTime });
-        }
-
-        if (blue & SmartButtonState_Pressed) {
-            _showBlue = true;
-            _sequencer.blueEvents.push_back({ Event::On, _sequencer.currentTime });
-        }
-
-        else if (blue & SmartButtonState_Dragged) {
-            _bluePos += delta;
-            _sequencer.blueChannel[_sequencer.currentTime] = _bluePos;
-        }
-
-        else if (blue & SmartButtonState_Released) {
-            _showBlue = false;
-            _sequencer.blueEvents.push_back({ Event::Off, _sequencer.currentTime });
-        }
-    }
-    ImGui::End();
-}
-
-
-
 void Application::drawTransport() {
     ImGui::Begin("Transport", nullptr);
     {
@@ -623,7 +550,7 @@ void Application::drawTransport() {
             }
         }
 
-        ImGui::SliderFloat("Zoom", &_sequencer.zoom, 5.0f, 200.0f);
+        ImGui::SliderFloat("Zoom", &_sequencer.zoom, 20.0f, 400.0f);
         ImGui::SliderInt("Stride", &_sequencer.stride, 1, 5);
     }
     ImGui::End();
@@ -636,86 +563,120 @@ void Application::drawShapes() {
 
     ImGui::Begin("Shapes", nullptr);
     {
+        static SmartButtonState red { 0 };
+        static SmartButtonState green { 0 };
+        static SmartButtonState blue { 0 };
+
+        auto size = ImVec2((float)shapeSize.x(), (float)shapeSize.y());
+        auto redPos = ImVec2((float)_redPos.x(), (float)_redPos.y());
+        auto greenPos = ImVec2((float)_greenPos.x(), (float)_greenPos.y());
+        auto bluePos = ImVec2((float)_bluePos.x(), (float)_bluePos.y());
+
+        ImGui::SetCursorPos(redPos);
+        SmartButton("Dragdoll", red, size);
+        ImGui::SetCursorPos(greenPos);
+        SmartButton("Bendoll", green, size);
+        ImGui::SetCursorPos(bluePos);
+        SmartButton("Blue", blue, size);
+
+        auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
+
+        if (red & SmartButtonState_Pressed) {
+            _showRed = true;
+            _sequencer.redEvents.push_back({ Event::On, _sequencer.currentTime });
+        }
+
+        else if (red & SmartButtonState_Dragged) {
+            _sequencer.redChannel[_sequencer.currentTime] = delta;
+        }
+
+        else if (red & SmartButtonState_Released) {
+            _showRed = false;
+            _sequencer.redEvents.push_back({ Event::Off, _sequencer.currentTime });
+        }
+
+        if (green & SmartButtonState_Pressed) {
+            _showGreen = true;
+            _sequencer.greenEvents.push_back({ Event::On, _sequencer.currentTime });
+        }
+
+        else if (green & SmartButtonState_Dragged) {
+            _sequencer.greenChannel[_sequencer.currentTime] = delta;
+        }
+
+        else if (green & SmartButtonState_Released) {
+            _showGreen = false;
+            _sequencer.greenEvents.push_back({ Event::Off, _sequencer.currentTime });
+        }
+
+        if (blue & SmartButtonState_Pressed) {
+            _showBlue = true;
+            _sequencer.blueEvents.push_back({ Event::On, _sequencer.currentTime });
+        }
+
+        else if (blue & SmartButtonState_Dragged) {
+            _sequencer.blueChannel[_sequencer.currentTime] = delta;
+        }
+
+        else if (blue & SmartButtonState_Released) {
+            _showBlue = false;
+            _sequencer.blueEvents.push_back({ Event::Off, _sequencer.currentTime });
+        }
+
+
+        auto root = ImGui::GetWindowPos();
         auto painter = ImGui::GetWindowDrawList();
 
-        auto drawCross = [&](Vector2i corner_, Vector2i size_, ImColor color) {
-            auto corner = ImVec2((float)corner_.x(), (float)corner_.y());
-            auto size = ImVec2((float)size_.x(), (float)size_.y());
+        auto drawCross = [&](ImVec2 corner, ImColor color) {
+            auto size = ImVec2((float)shapeSize.x(), (float)shapeSize.y());
 
             auto hlineStart = ImVec2(corner.x, corner.y + size.y / 2);
             auto hlineEnd   = ImVec2(hlineStart.x + size.x, hlineStart.y);
             auto vlineStart = ImVec2(corner.x + size.x / 2, corner.y);
             auto vlineEnd   = ImVec2(vlineStart.x, vlineStart.y + size.y);
 
-            // Shadow
-            painter->AddLine(hlineStart + 1, hlineEnd + 1, ImColor::HSV(0.0, 0.0, 0.15f));
-            painter->AddLine(vlineStart + 1, vlineEnd + 1, ImColor::HSV(0.0, 0.0, 0.15f));
-
-            // Fill
-            painter->AddLine(hlineStart, hlineEnd, color);
-            painter->AddLine(vlineStart, vlineEnd, color);
+            painter->AddCircleFilled(
+                corner,
+                // ImVec2(corner.x + size.x / 2, corner.y + size.y / 2),
+                5.0f,
+                ImColor::HSV(0.0, 0.0, 1.0f)
+            );
         };
 
-        {
-            auto topLeft = Vector2(_redPos);
-            auto bottomRight = Vector2(_redPos + shapeSize);
+        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
+            auto redPos = _redPos;
+            auto topLeft = Vector2(redPos);
+            auto bottomRight = Vector2(redPos + shapeSize);
 
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            if (_sequencer.redChannel.count(_sequencer.currentTime)) {
-                auto redPos = _sequencer.redChannel[_sequencer.currentTime];
-                auto topLeft = Vector2(redPos);
-                auto bottomRight = Vector2(redPos + shapeSize);
-
-                auto itl = ImVec2(topLeft.x(), topLeft.y());
-                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-                painter->AddRectFilled(itl, ibr, EditorTheme.redFill);
-            }
-
-            drawCross(_redPos, shapeSize, EditorTheme.redFill);
+            drawCross(root + itl, EditorTheme.redFill);
         }
 
-        {
-            auto topLeft = Vector2(_greenPos);
-            auto bottomRight = Vector2(_greenPos + shapeSize);
+        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
+            auto greenPos = _greenPos;
+            auto topLeft = Vector2(greenPos);
+            auto bottomRight = Vector2(greenPos + shapeSize);
+
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
-                auto greenPos = _sequencer.greenChannel[_sequencer.currentTime];
-                auto topLeft = Vector2(greenPos);
-                auto bottomRight = Vector2(greenPos + shapeSize);
-
-                auto itl = ImVec2(topLeft.x(), topLeft.y());
-                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-                painter->AddRectFilled(itl, ibr, EditorTheme.greenFill);
-            }
-
-            drawCross(_greenPos, shapeSize, EditorTheme.greenFill);
+            drawCross(root + itl, EditorTheme.greenFill);
         }
 
-        {
-            auto topLeft = Vector2(_bluePos);
-            auto bottomRight = Vector2(_bluePos + shapeSize);
+        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
+            auto bluePos = _bluePos;
+            auto topLeft = Vector2(bluePos);
+            auto bottomRight = Vector2(bluePos + shapeSize);
+
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
-                auto bluePos = _sequencer.blueChannel[_sequencer.currentTime];
-                auto topLeft = Vector2(bluePos);
-                auto bottomRight = Vector2(bluePos + shapeSize);
-
-                auto itl = ImVec2(topLeft.x(), topLeft.y());
-                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-                painter->AddRectFilled(itl, ibr, EditorTheme.blueFill);
-            }
-
-            drawCross(_bluePos, shapeSize, EditorTheme.blueFill);
+            drawCross(root + itl, EditorTheme.blueFill);
         }
+
+
     }
     ImGui::End();
 }
@@ -751,6 +712,26 @@ void Application::drawThemeEditor() {
 }
 
 
+void Application::updatePositions() {
+    if (_sequencer.currentTime == _sequencer.range.x()) {
+        _redPos = _redInitialPos;
+        _greenPos = _greenInitialPos;
+        _bluePos = _blueInitialPos;
+    }
+    else {
+        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
+            _redPos += _sequencer.redChannel[_sequencer.currentTime];
+        }
+        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
+            _greenPos += _sequencer.greenChannel[_sequencer.currentTime];
+        }
+        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
+            _bluePos += _sequencer.blueChannel[_sequencer.currentTime];
+        }
+    }
+}
+
+
 void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
@@ -782,10 +763,11 @@ void Application::drawEvent() {
     }
 
     drawCentralWidget();
-    _sequencer.draw();
     drawTransport();
-    drawButtons();
     drawShapes();
+    _sequencer.draw();
+
+    updatePositions();
 
     if (_showMetrics) {
         ImGui::ShowMetricsWindow(&_showMetrics);
@@ -818,113 +800,6 @@ void Application::drawEvent() {
         redraw();
     }
 }
-
-
-void Application::theme() {
-    ImGuiStyle & style = ImGui::GetStyle();
-    ImVec4 * colors = style.Colors;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, -1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(2.0f, 3.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.5f, 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 0.0f);
-
-    colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextDisabled]           = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_ChildBg]                = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_WindowBg]               = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_PopupBg]                = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_Border]                 = ImVec4(0.12f, 0.12f, 0.12f, 0.71f);
-    colors[ImGuiCol_BorderShadow]           = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
-    colors[ImGuiCol_FrameBg]                = ImVec4(0.42f, 0.42f, 0.42f, 0.54f);
-    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.42f, 0.42f, 0.42f, 0.40f);
-    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.56f, 0.56f, 0.56f, 0.67f);
-    colors[ImGuiCol_Tab]                    = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_TabHovered]             = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_TabActive]              = ImVec4(0.33f, 0.33f, 0.33f, 1.00f);
-    colors[ImGuiCol_TabUnfocused]           = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.33f, 0.33f, 0.33f, 1.00f);
-    colors[ImGuiCol_TitleBg]                = ImVec4(0.19f, 0.19f, 0.19f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]          = ImVec4(0.211f, 0.276f, 0.318f, 1.000f);
-    colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.17f, 0.17f, 0.17f, 0.90f);
-    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.335f, 0.335f, 0.335f, 1.000f);
-    colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.24f, 0.24f, 0.24f, 0.53f);
-    colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.52f, 0.52f, 0.52f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.76f, 0.76f, 0.76f, 1.00f);
-    colors[ImGuiCol_CheckMark]              = ImVec4(0.65f, 0.65f, 0.65f, 1.00f);
-    colors[ImGuiCol_SliderGrab]             = ImVec4(0.52f, 0.52f, 0.52f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.64f, 0.64f, 0.64f, 1.00f);
-    colors[ImGuiCol_Button]                 = ImVec4(0.54f, 0.54f, 0.54f, 0.35f);
-    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.52f, 0.52f, 0.52f, 0.59f);
-    colors[ImGuiCol_ButtonActive]           = ImVec4(0.76f, 0.76f, 0.76f, 1.00f);
-    colors[ImGuiCol_Header]                 = colors[ImGuiCol_TitleBg];
-    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.250f, 0.400f, 0.500f, 1.000f);
-    colors[ImGuiCol_HeaderActive]           = colors[ImGuiCol_HeaderHovered] * 0.9f;
-    colors[ImGuiCol_Separator]              = ImVec4(0.000f, 0.000f, 0.000f, 0.137f);
-    colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.700f, 0.671f, 0.600f, 0.290f);
-    colors[ImGuiCol_SeparatorActive]        = ImVec4(0.702f, 0.671f, 0.600f, 0.674f);
-    colors[ImGuiCol_ResizeGrip]             = colors[ImGuiCol_Header];
-    colors[ImGuiCol_ResizeGripHovered]      = colors[ImGuiCol_Header] * 1.4f;
-    colors[ImGuiCol_ResizeGripActive]       = colors[ImGuiCol_Header] * 1.6f;
-    colors[ImGuiCol_PlotLines]              = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
-    colors[ImGuiCol_PlotLinesHovered]       = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-    colors[ImGuiCol_PlotHistogram]          = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-    colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-    colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.73f, 0.73f, 0.73f, 0.35f);
-    colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
-    colors[ImGuiCol_DragDropTarget]         = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-    colors[ImGuiCol_NavHighlight]           = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
-    colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-
-    ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
-    ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
-    ImGui::GetIO().ConfigDockingWithShift = true;
-    
-    // Default is 6, which leaves a lag between dragging and actually having an effect.
-    ImGui::GetIO().MouseDragThreshold = 0.0f;
-
-    style.AntiAliasedLines = true;
-    style.WindowMenuButtonPosition = ImGuiDir_Right;
-
-    style.PopupRounding = 3;
-
-    style.WindowPadding = ImVec2(4, 4);
-    style.FramePadding  = ImVec2(6, 4);
-    style.ItemSpacing   = ImVec2(6, 2);
-
-    style.ScrollbarSize = 18;
-
-    style.WindowBorderSize = 1;
-    style.ChildBorderSize  = 1;
-    style.PopupBorderSize  = 1;
-    style.FrameBorderSize  = 1;
-
-    style.WindowRounding    = 3;
-    style.ChildRounding     = 3;
-    style.FrameRounding     = 0;
-    style.ScrollbarRounding = 2;
-    style.GrabRounding      = 0;
-
-    style.TabBorderSize = 0; 
-    style.TabRounding   = 3;
-
-    colors[ImGuiCol_DockingEmptyBg]     = ImVec4(0.38f, 0.38f, 0.38f, 1.00f);
-    colors[ImGuiCol_DockingPreview]     = ImVec4(0.85f, 0.85f, 0.85f, 0.28f);
-
-    style.WindowRounding = 0.0f;
-    style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-}
-
 
 void Application::viewportEvent(ViewportEvent& event) {
     GL::defaultFramebuffer.setViewport({{}, event.framebufferSize()});
