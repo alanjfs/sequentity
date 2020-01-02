@@ -17,11 +17,13 @@ using namespace Math::Literals;
 
 
 struct Event {
-    enum Type {
-        On,
-        Off
-    } type;
+    // enum Type {
+    //     On,
+    //     Off
+    // } type;
+
     int time;
+    int length;
 };
 
 
@@ -106,6 +108,12 @@ struct Sequencer {
     float zoom { 200.0f };
     int stride { 3 };
 
+    // If an event reaches beyond the end and loops around,
+    // should we create a new event at the start to emulate
+    // a long-running event? Default is to stop the event
+    // at the end.
+    bool splitEndEvent { false };
+
     // Temp
     std::unordered_map<int, Vector2i> redChannel;
     std::unordered_map<int, Vector2i> greenChannel;
@@ -118,19 +126,6 @@ struct Sequencer {
 
 
 void Sequencer::draw() {
-    struct Style {
-        Style() {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImU32(EditorTheme.background)); count++;
-        }
-
-        ~Style() {
-            ImGui::PopStyleColor(count);
-        }
-
-        int count { 0 };
-    };
-
-    // Style t;
     ImGui::Begin("Editor", nullptr);
     {
 
@@ -292,36 +287,28 @@ void Sequencer::draw() {
                 for (std::size_t i=0; i < events->size(); ++i) {
                     auto& event = events->at(i);
 
-                    if (event.type == Event::On) {
-                        int startTime = event.time;
-                        int endTime = currentTime;
+                    int startTime = event.time;
+                    int endTime = startTime + event.length;
 
-                        // Find end
-                        if (events->size() - 1 > i) {
-                            auto off = events->at(i + 1);
-                            endTime = off.time;
-                        }
+                    ImColor fill = yOffset == 0 ? EditorTheme.redFill :
+                                   yOffset == 1 ? EditorTheme.greenFill :
+                                                  EditorTheme.blueFill;
+                    ImColor stroke = yOffset == 0 ? EditorTheme.redStroke :
+                                     yOffset == 1 ? EditorTheme.greenStroke :
+                                                    EditorTheme.blueStroke;
 
-                        ImColor fill = yOffset == 0 ? EditorTheme.redFill :
-                                       yOffset == 1 ? EditorTheme.greenFill :
-                                                      EditorTheme.blueFill;
-                        ImColor stroke = yOffset == 0 ? EditorTheme.redStroke :
-                                         yOffset == 1 ? EditorTheme.greenStroke :
-                                                        EditorTheme.blueStroke;
+                    float xMin = static_cast<float>(startTime) * zoom_ / stride_;
+                    float xMax = static_cast<float>(endTime) * zoom_ / stride_;
+                    float yMin = 0;
+                    float yMax = lineHeight;
 
-                        float xMin = static_cast<float>(startTime) * zoom_ / stride_;
-                        float xMax = static_cast<float>(endTime) * zoom_ / stride_;
-                        float yMin = 0;
-                        float yMax = lineHeight;
+                    xMin += C.x;
+                    xMax += C.x;
+                    yMin += C.y + (lineHeight * yOffset);
+                    yMax += C.y + (lineHeight * yOffset);
 
-                        xMin += C.x;
-                        xMax += C.x;
-                        yMin += C.y + (lineHeight * yOffset);
-                        yMax += C.y + (lineHeight * yOffset);
-
-                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, EditorTheme.radius);
-                        painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, EditorTheme.radius);
-                    }
+                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, EditorTheme.radius);
+                    painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, EditorTheme.radius);
                 }
 
                 yOffset += 1;
@@ -348,7 +335,6 @@ public:
     void drawEvent() override;
     void drawShapes();
     void drawThemeEditor();
-    // void drawButtons();
     void drawTransport();
     void drawTimeline();
     void drawCentralWidget();
@@ -380,9 +366,6 @@ private:
     bool _showMetrics { false };
     bool _showStyleEditor { false };
 
-    bool _showRed { false };
-    bool _showGreen { false };
-    bool _showBlue { false };
 
     Vector2i _redPos { 300, 50 };
     Vector2i _greenPos { 550, 50 };
@@ -581,48 +564,90 @@ void Application::drawShapes() {
 
         auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
 
+        static Event* redCurrent { nullptr };
+        static Event* greenCurrent { nullptr };
+        static Event* blueCurrent { nullptr };
+
         if (red & SmartButtonState_Pressed) {
-            _showRed = true;
-            _sequencer.redEvents.push_back({ Event::On, _sequencer.currentTime });
+            _sequencer.redEvents.push_back({ _sequencer.currentTime, 1 });
+            redCurrent = &_sequencer.redEvents.back();
         }
 
         else if (red & SmartButtonState_Dragged) {
-            _sequencer.redChannel[_sequencer.currentTime] = delta;
+            if (redCurrent != nullptr && redCurrent->time + redCurrent->length > _sequencer.currentTime) {
+                redCurrent = nullptr;
+            }
+
+            if (redCurrent != nullptr) {
+                _sequencer.redChannel[_sequencer.currentTime] = delta;
+                redCurrent->length += 1;
+            }
         }
 
         else if (red & SmartButtonState_Released) {
-            _showRed = false;
-            _sequencer.redEvents.push_back({ Event::Off, _sequencer.currentTime });
+            redCurrent = nullptr;
         }
+
+
 
         if (green & SmartButtonState_Pressed) {
-            _showGreen = true;
-            _sequencer.greenEvents.push_back({ Event::On, _sequencer.currentTime });
-        }
-
-        else if (green & SmartButtonState_Dragged) {
-            _sequencer.greenChannel[_sequencer.currentTime] = delta;
+            _sequencer.greenEvents.push_back({ _sequencer.currentTime, 1 });
+            greenCurrent = &_sequencer.greenEvents.back();
         }
 
         else if (green & SmartButtonState_Released) {
-            _showGreen = false;
-            _sequencer.greenEvents.push_back({ Event::Off, _sequencer.currentTime });
+            greenCurrent = nullptr;
         }
+
+        else if (green & SmartButtonState_Dragged) {
+            if (greenCurrent != nullptr && greenCurrent->time + greenCurrent->length > _sequencer.currentTime) {
+                greenCurrent = nullptr;
+            }
+
+            if (greenCurrent != nullptr) {
+                _sequencer.greenChannel[_sequencer.currentTime] = delta;
+                greenCurrent->length += 1;
+            }
+        }
+
+
 
         if (blue & SmartButtonState_Pressed) {
-            _showBlue = true;
-            _sequencer.blueEvents.push_back({ Event::On, _sequencer.currentTime });
-        }
-
-        else if (blue & SmartButtonState_Dragged) {
-            _sequencer.blueChannel[_sequencer.currentTime] = delta;
+            _sequencer.blueEvents.push_back({ _sequencer.currentTime, 1 });
+            blueCurrent = &_sequencer.blueEvents.back();
         }
 
         else if (blue & SmartButtonState_Released) {
-            _showBlue = false;
-            _sequencer.blueEvents.push_back({ Event::Off, _sequencer.currentTime });
+            blueCurrent = nullptr;
         }
 
+        else if (blue & SmartButtonState_Dragged) {
+            if (blueCurrent != nullptr && blueCurrent->time + blueCurrent->length > _sequencer.currentTime) {
+                blueCurrent = nullptr;
+            }
+
+            if (blueCurrent != nullptr) {
+                _sequencer.blueChannel[_sequencer.currentTime] = delta;
+                blueCurrent->length += 1;
+            }
+        }
+
+        else if (blue & SmartButtonState_Released) {
+            blueCurrent = nullptr;
+        }
+
+        // Split events occurring past the end frame
+        // for (auto* e : { &_sequencer.redEvents, &_sequencer.greenEvents, &_sequencer.blueEvents }) {
+        //     if (e->size() < 1) continue;
+
+        //     auto last = e->back();
+
+        //     if (last.time + last.length > _sequencer.currentTime) {
+        //         last.length = _sequencer.currentTime - last.time;
+        //         e->push_back({ Event::Off, _sequencer.range.y() });
+        //         e->push_back({ Event::On, _sequencer.currentTime });
+        //     }
+        // }
 
         auto root = ImGui::GetWindowPos();
         auto painter = ImGui::GetWindowDrawList();
@@ -747,20 +772,6 @@ void Application::drawEvent() {
 
     if (ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput && isTextInputActive()) stopTextInput();
-
-    // Split events occurring past the end frame
-    for (auto* e : { &_sequencer.redEvents, &_sequencer.greenEvents, &_sequencer.blueEvents }) {
-        if (e->size() > 0) {
-            auto last = e->back();
-
-            if (last.type == Event::On) {
-                if (last.time > _sequencer.currentTime) {
-                    e->push_back({ Event::Off, _sequencer.range.y() });
-                    e->push_back({ Event::On, _sequencer.currentTime });
-                }
-            }
-        }
-    }
 
     drawCentralWidget();
     drawTransport();
