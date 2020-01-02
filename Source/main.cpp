@@ -9,6 +9,8 @@
 #include <Magnum/ImGuiIntegration/Context.hpp>
 #include <Magnum/Platform/GlfwApplication.h>
 
+#include <imgui_internal.h>
+
 using namespace Magnum;
 using namespace Math::Literals;
 
@@ -42,17 +44,57 @@ static struct EditorTheme_ {
     ImColor accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
 
     ImColor redFill     { ImColor::HSV(0.0f, 0.75f, 0.75f) };
-    ImColor redStroke   { ImColor::HSV(0.0f, 0.0, 0.5) };
+    ImColor redStroke   { ImColor::HSV(0.0f, 0.0f, 0.1f) };
 
     ImColor greenFill   { ImColor::HSV(0.33f, 0.75f, 0.75f) };
-    ImColor greenStroke { ImColor::HSV(0.33f, 0.0, 0.5) };
+    ImColor greenStroke { ImColor::HSV(0.33f, 0.0f, 0.1f) };
 
-    ImColor blueFill    { ImColor::HSV(0.50f, 0.75f, 0.75f) };
-    ImColor blueStroke  { ImColor::HSV(0.50f, 0.0, 0.5) };
+    ImColor blueFill    { ImColor::HSV(0.58f, 0.75f, 0.75f) };
+    ImColor blueStroke  { ImColor::HSV(0.58f, 0.0f, 0.1f) };
     
     float radius { 0.0f };
 
 } EditorTheme;
+
+
+using SmartButtonState = int;
+enum SmartButtonState_ {
+    SmartButtonState_None = 0,
+    SmartButtonState_Hovered = 1 << 1,
+    SmartButtonState_Pressed = 1 << 2,
+    SmartButtonState_Dragged = 1 << 3,
+    SmartButtonState_Released = 1 << 4,
+    SmartButtonState_DoubleClicked = 1 << 5, // Not yet implemented
+    SmartButtonState_Idle
+};
+
+
+static SmartButtonState SmartButton(const char* label, SmartButtonState& previous, ImVec2 size = {0, 0}) {
+    bool released = ImGui::Button(label, size);
+
+    const bool wasDragged = previous & SmartButtonState_Dragged;
+    const bool wasPressed = previous & SmartButtonState_Pressed;
+
+    SmartButtonState current { 0 };
+    if (released) current |= SmartButtonState_Released;
+    if (ImGui::IsItemActive()) current |= SmartButtonState_Pressed;
+    if (ImGui::IsItemHovered()) current |= SmartButtonState_Hovered;
+
+    // Detect when button is dragged
+    if (current & SmartButtonState_Pressed) {
+        if (wasDragged || wasPressed) {
+            current = SmartButtonState_Dragged;
+        }
+    }
+
+    // Detect release event, despite not happening within bounds of button
+    if ((wasPressed || wasDragged) && !ImGui::IsAnyMouseDown()) {
+        current = SmartButtonState_Released;
+    }
+
+    previous = current;
+    return current;
+}
 
 
 struct Sequencer {
@@ -87,7 +129,7 @@ void Sequencer::draw() {
         int count { 0 };
     };
 
-    Style t;
+    // Style t;
     ImGui::Begin("Editor", nullptr);
     {
 
@@ -151,7 +193,13 @@ void Sequencer::draw() {
                 const auto yMax = B.y + TimelineTheme.height;
 
                 painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), TimelineTheme.dark);
-                painter->AddText(ImVec2(xMin + 5.0f, yMin + lineHeight), TimelineTheme.text, std::to_string(time * stride_).c_str());
+                painter->AddText(
+                    ImGui::GetFont(),
+                    ImGui::GetFontSize() * 0.85f,
+                    ImVec2(xMin + 5.0f, yMin + lineHeight),
+                    TimelineTheme.text,
+                    std::to_string(time * stride_).c_str()
+                );
 
                 if (time == maxTime) break;
 
@@ -274,8 +322,8 @@ void Sequencer::draw() {
                         yMin += C.y + (lineHeight * yOffset);
                         yMax += C.y + (lineHeight * yOffset);
 
-                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, 3.0f);
-                        painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, 3.0f);
+                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, EditorTheme.radius);
+                        painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, EditorTheme.radius);
                     }
                 }
 
@@ -291,61 +339,60 @@ void Sequencer::draw() {
         drawVerticalGrid();
         drawEvents();
         drawCurrentTime();
-
     }
     ImGui::End();
 }
 
 
-class Sequenser : public Platform::Application {
-    public:
-        explicit Sequenser(const Arguments& arguments);
+class Application : public Platform::Application {
+public:
+    explicit Application(const Arguments& arguments);
 
-        void drawEvent() override;
-        void drawShapes();
-        void drawThemeEditor();
-        void drawButtons();
-        void drawTransport();
-        void drawTimeline();
+    void drawEvent() override;
+    void drawShapes();
+    void drawThemeEditor();
+    void drawButtons();
+    void drawTransport();
+    void drawTimeline();
+    void drawCentralWidget();
+    void clear();
 
-        void clear();
+    auto dpiScaling() const -> Vector2;
+    void viewportEvent(ViewportEvent& event) override;
 
-        auto dpiScaling() const -> Vector2;
-        void viewportEvent(ViewportEvent& event) override;
+    void keyPressEvent(KeyEvent& event) override;
+    void keyReleaseEvent(KeyEvent& event) override;
 
-        void keyPressEvent(KeyEvent& event) override;
-        void keyReleaseEvent(KeyEvent& event) override;
+    void mousePressEvent(MouseEvent& event) override;
+    void mouseReleaseEvent(MouseEvent& event) override;
+    void mouseMoveEvent(MouseMoveEvent& event) override;
+    void mouseScrollEvent(MouseScrollEvent& event) override;
+    void textInputEvent(TextInputEvent& event) override;
 
-        void mousePressEvent(MouseEvent& event) override;
-        void mouseReleaseEvent(MouseEvent& event) override;
-        void mouseMoveEvent(MouseMoveEvent& event) override;
-        void mouseScrollEvent(MouseScrollEvent& event) override;
-        void textInputEvent(TextInputEvent& event) override;
+private:
+    ImGuiIntegration::Context _imgui{ NoCreate };
+    Sequencer _sequencer;
 
-    private:
-        ImGuiIntegration::Context _imgui{ NoCreate };
-        Sequencer _sequencer;
+    Vector2 _dpiScaling { 1.0f, 1.0f };
 
-        Vector2 _dpiScaling { 1.0f, 1.0f };
+    bool _running { true };
+    bool _playing { true };
 
-        bool _running { true };
-        bool _playing { true };
-
-        bool _showMetrics { false };
-        bool _showStyleEditor { false };
+    bool _showMetrics { false };
+    bool _showStyleEditor { false };
 
     bool _showRed { false };
     bool _showGreen { false };
     bool _showBlue { false };
-    Vector2i _redPos { 0, 0 };
-    Vector2i _greenPos { 100, 0 };
-    Vector2i _bluePos { 200, 0 };
+    Vector2i _redPos { 300, 50 };
+    Vector2i _greenPos { 550, 50 };
+    Vector2i _bluePos { 800, 50 };
 
 };
 
 
-Sequenser::Sequenser(const Arguments& arguments): Platform::Application{arguments,
-    Configuration{}.setTitle("Sequenser")
+Application::Application(const Arguments& arguments): Platform::Application{arguments,
+    Configuration{}.setTitle("Application")
                    .setSize({1600, 900})
                    .setWindowFlags(Configuration::WindowFlag::Resizable)}
 {
@@ -384,7 +431,10 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
 
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
-    ImGui::StyleColorsLight();
+    // ImGui::StyleColorsLight();
+
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;    // Enable Docking
+    ImGui::GetIO().ConfigDockingWithShift = true;
 
     /* Set up proper blending to be used by ImGui. There's a great chance
        you'll need this exact behavior for the rest of your scene. If not, set
@@ -396,10 +446,10 @@ Sequenser::Sequenser(const Arguments& arguments): Platform::Application{argument
 }
 
 
-auto Sequenser::dpiScaling() const -> Vector2 { return _dpiScaling; }
+auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
-void Sequenser::clear() {
+void Application::clear() {
     _sequencer.redChannel.clear();
     _sequencer.greenChannel.clear();
     _sequencer.blueChannel.clear();
@@ -410,47 +460,58 @@ void Sequenser::clear() {
 }
 
 
-using SmartButtonState = int;
-enum SmartButtonState_ {
-    SmartButtonState_None = 0,
-    SmartButtonState_Hovered = 1 << 1,
-    SmartButtonState_Pressed = 1 << 2,
-    SmartButtonState_Dragged = 1 << 3,
-    SmartButtonState_Released = 1 << 4,
-    SmartButtonState_DoubleClicked = 1 << 5, // Not yet implemented
-    SmartButtonState_Idle
-};
+void Application::drawCentralWidget() {
+    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoDocking
+                                 | ImGuiWindowFlags_NoTitleBar
+                                 | ImGuiWindowFlags_NoCollapse
+                                 | ImGuiWindowFlags_NoResize
+                                 | ImGuiWindowFlags_NoMove
+                                 | ImGuiWindowFlags_NoBringToFrontOnFocus
+                                 | ImGuiWindowFlags_NoNavFocus;
 
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::SetNextWindowViewport(viewport->ID);
 
-static SmartButtonState SmartButton(const char* label, SmartButtonState& previous, ImVec2 size = {0, 0}) {
-    bool released = ImGui::Button(label, size);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
-    const bool wasDragged = previous & SmartButtonState_Dragged;
-    const bool wasPressed = previous & SmartButtonState_Pressed;
+    // This is basically the background window that contains all the dockable windows
+    ImGui::Begin("InvisibleWindow", nullptr, windowFlags);
+    ImGui::PopStyleVar(3);
 
-	SmartButtonState current { 0 };
-    if (released) current |= SmartButtonState_Released;
-    if (ImGui::IsItemActive()) current |= SmartButtonState_Pressed;
-    if (ImGui::IsItemHovered()) current |= SmartButtonState_Hovered;
+    ImGuiID dockSpaceId = ImGui::GetID("InvisibleWindowDockSpace");
 
-    // Detect when button is dragged
-    if (current & SmartButtonState_Pressed) {
-        if (wasDragged || wasPressed) {
-            current = SmartButtonState_Dragged;
-        }
+    if(!ImGui::DockBuilderGetNode(dockSpaceId)) {
+        ImGui::DockBuilderAddNode(dockSpaceId, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockSpaceId, viewport->Size);
+
+        auto timelineHeight = 40.0f; // px, unscaled
+        auto shelfHeight = 40.0f;
+        auto outlinerWidth = 200.0f;
+        auto channelBoxWidth = 400.0f;
+
+        ImGuiID center = dockSpaceId;
+        ImGuiID top = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.1f, nullptr, &center);
+        ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.25f, nullptr, &center);
+        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
+        ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.5f, nullptr, &center);
+
+        ImGui::DockBuilderDockWindow("Transport", left);
+        ImGui::DockBuilderDockWindow("Buttons", bottom);
+        ImGui::DockBuilderDockWindow("Editor", bottom);
+
+        ImGui::DockBuilderFinish(center);
     }
 
-    // Detect release event, despite not happening within bounds of button
-    if ((wasPressed || wasDragged) && !ImGui::IsAnyMouseDown()) {
-        current = SmartButtonState_Released;
-    }
-
-    previous = current;
-    return current;
+    ImGui::DockSpace(dockSpaceId, ImVec2(0.0f, 0.0f));
+    ImGui::End();
 }
 
 
-void Sequenser::drawButtons() {
+void Application::drawButtons() {
     ImGui::Begin("Buttons", nullptr);
     {
         static const auto size = ImVec2(150, 40);
@@ -513,7 +574,7 @@ void Sequenser::drawButtons() {
 
 
 
-void Sequenser::drawTransport() {
+void Application::drawTransport() {
     ImGui::Begin("Transport", nullptr);
     {
         if (ImGui::Button("Play")) _playing ^= true;
@@ -554,77 +615,81 @@ void Sequenser::drawTransport() {
 }
 
 
-void Sequenser::drawShapes() {
+void Application::drawShapes() {
     ImVec2 size = ImGui::GetWindowSize();
-    auto painter = ImGui::GetForegroundDrawList();
     Vector2i shapeSize { 100, 100 };
 
+    ImGui::Begin("Shapes", nullptr);
     {
-        const ImU32 col = ImColor(1.0f, 0.0f, 0.0f, 1.0f);
-        auto topLeft = Vector2(_redPos);
-        auto bottomRight = Vector2(_redPos + shapeSize);
-
-        auto itl = ImVec2(topLeft.x(), topLeft.y());
-        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-        painter->AddRect(itl, ibr, col);
-
-        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
-            auto redPos = _sequencer.redChannel[_sequencer.currentTime];
-            auto topLeft = Vector2(redPos);
-            auto bottomRight = Vector2(redPos + shapeSize);
+        auto painter = ImGui::GetWindowDrawList();
+        {
+            const ImU32 col = ImColor(1.0f, 0.0f, 0.0f, 1.0f);
+            auto topLeft = Vector2(_redPos);
+            auto bottomRight = Vector2(_redPos + shapeSize);
 
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            painter->AddRectFilled(itl, ibr, col);
+            painter->AddRect(itl, ibr, col);
+
+            if (_sequencer.redChannel.count(_sequencer.currentTime)) {
+                auto redPos = _sequencer.redChannel[_sequencer.currentTime];
+                auto topLeft = Vector2(redPos);
+                auto bottomRight = Vector2(redPos + shapeSize);
+
+                auto itl = ImVec2(topLeft.x(), topLeft.y());
+                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+                painter->AddRectFilled(itl, ibr, col);
+            }
         }
-    }
 
-    {
-        const ImU32 col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
-        auto topLeft = Vector2(_greenPos);
-        auto bottomRight = Vector2(_greenPos + shapeSize);
-        auto itl = ImVec2(topLeft.x(), topLeft.y());
-        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-        painter->AddRect(itl, ibr, col);
-
-        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
-            auto greenPos = _sequencer.greenChannel[_sequencer.currentTime];
-            auto topLeft = Vector2(greenPos);
-            auto bottomRight = Vector2(greenPos + shapeSize);
-
+        {
+            const ImU32 col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
+            auto topLeft = Vector2(_greenPos);
+            auto bottomRight = Vector2(_greenPos + shapeSize);
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            painter->AddRectFilled(itl, ibr, col);
+            painter->AddRect(itl, ibr, col);
+
+            if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
+                auto greenPos = _sequencer.greenChannel[_sequencer.currentTime];
+                auto topLeft = Vector2(greenPos);
+                auto bottomRight = Vector2(greenPos + shapeSize);
+
+                auto itl = ImVec2(topLeft.x(), topLeft.y());
+                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+                painter->AddRectFilled(itl, ibr, col);
+            }
         }
-    }
 
-    {
-        const ImU32 col = ImColor(0.0f, 0.0f, 1.0f, 1.0f);
-        auto topLeft = Vector2(_bluePos);
-        auto bottomRight = Vector2(_bluePos + shapeSize);
-        auto itl = ImVec2(topLeft.x(), topLeft.y());
-        auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-        painter->AddRect(itl, ibr, col);
-
-        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
-            auto bluePos = _sequencer.blueChannel[_sequencer.currentTime];
-            auto topLeft = Vector2(bluePos);
-            auto bottomRight = Vector2(bluePos + shapeSize);
-
+        {
+            const ImU32 col = ImColor(0.0f, 0.0f, 1.0f, 1.0f);
+            auto topLeft = Vector2(_bluePos);
+            auto bottomRight = Vector2(_bluePos + shapeSize);
             auto itl = ImVec2(topLeft.x(), topLeft.y());
             auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
 
-            painter->AddRectFilled(itl, ibr, col);
+            painter->AddRect(itl, ibr, col);
+
+            if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
+                auto bluePos = _sequencer.blueChannel[_sequencer.currentTime];
+                auto topLeft = Vector2(bluePos);
+                auto bottomRight = Vector2(bluePos + shapeSize);
+
+                auto itl = ImVec2(topLeft.x(), topLeft.y());
+                auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+
+                painter->AddRectFilled(itl, ibr, col);
+            }
         }
     }
+    ImGui::End();
 }
 
-void Sequenser::drawThemeEditor() {
+void Application::drawThemeEditor() {
     static bool open = true;
 
     ImGui::Begin("Theme");
@@ -655,7 +720,7 @@ void Sequenser::drawThemeEditor() {
 }
 
 
-void Sequenser::drawEvent() {
+void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
     _imgui.newFrame();
@@ -685,6 +750,7 @@ void Sequenser::drawEvent() {
         }
     }
 
+    drawCentralWidget();
     _sequencer.draw();
     drawTransport();
     drawButtons();
@@ -722,14 +788,14 @@ void Sequenser::drawEvent() {
     }
 }
 
-void Sequenser::viewportEvent(ViewportEvent& event) {
+void Application::viewportEvent(ViewportEvent& event) {
     GL::defaultFramebuffer.setViewport({{}, event.framebufferSize()});
 
     _imgui.relayout(Vector2{ event.windowSize() } / dpiScaling(),
         event.windowSize(), event.framebufferSize());
 }
 
-void Sequenser::keyPressEvent(KeyEvent& event) {
+void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Esc) this->exit();
     if (event.key() == KeyEvent::Key::Enter) redraw();
     if (event.key() == KeyEvent::Key::Backspace) _running ^= true;
@@ -739,23 +805,23 @@ void Sequenser::keyPressEvent(KeyEvent& event) {
     if(_imgui.handleKeyPressEvent(event)) return;
 }
 
-void Sequenser::keyReleaseEvent(KeyEvent& event) {
+void Application::keyReleaseEvent(KeyEvent& event) {
     if(_imgui.handleKeyReleaseEvent(event)) return;
 }
 
-void Sequenser::mousePressEvent(MouseEvent& event) {
+void Application::mousePressEvent(MouseEvent& event) {
     if(_imgui.handleMousePressEvent(event)) return;
 }
 
-void Sequenser::mouseReleaseEvent(MouseEvent& event) {
+void Application::mouseReleaseEvent(MouseEvent& event) {
     if(_imgui.handleMouseReleaseEvent(event)) return;
 }
 
-void Sequenser::mouseMoveEvent(MouseMoveEvent& event) {
+void Application::mouseMoveEvent(MouseMoveEvent& event) {
     if(_imgui.handleMouseMoveEvent(event)) return;
 }
 
-void Sequenser::mouseScrollEvent(MouseScrollEvent& event) {
+void Application::mouseScrollEvent(MouseScrollEvent& event) {
     if(_imgui.handleMouseScrollEvent(event)) {
         /* Prevent scrolling the page */
         event.setAccepted();
@@ -763,9 +829,9 @@ void Sequenser::mouseScrollEvent(MouseScrollEvent& event) {
     }
 }
 
-void Sequenser::textInputEvent(TextInputEvent& event) {
+void Application::textInputEvent(TextInputEvent& event) {
     if(_imgui.handleTextInputEvent(event)) return;
 }
 
 
-MAGNUM_APPLICATION_MAIN(Sequenser)
+MAGNUM_APPLICATION_MAIN(Application)
