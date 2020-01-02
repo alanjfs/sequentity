@@ -1,6 +1,5 @@
 #include <string>
 #include <iostream>
-#include <map>
 #include <unordered_map>
 
 #include <Magnum/Math/Color.h>
@@ -10,21 +9,40 @@
 #include <Magnum/Platform/GlfwApplication.h>
 
 #include <imgui_internal.h>
+#include <entt/entity/registry.hpp>
+
 #include "Theme.h"
 
 using namespace Magnum;
 using namespace Math::Literals;
 
+static entt::registry Registry;
 
+// Components
 struct Event {
-    // enum Type {
-    //     On,
-    //     Off
-    // } type;
+    enum Type {
+        Red, Green, Blue
+    } type;
 
     int time;
     int length;
 };
+
+using Events = std::vector<Event>;
+using Position = Vector2i;
+struct InitialPosition : Vector2i { using Vector2i::Vector2i; };
+struct Size : Vector2i { using Vector2i::Vector2i; };
+
+struct Color {
+    ImColor fill;
+    ImColor stroke;
+};
+
+struct Name {
+    const char* text;
+};
+
+using Channel = std::unordered_map<int, Vector2i>;
 
 
 static struct TimelineTheme_ {
@@ -45,15 +63,6 @@ static struct EditorTheme_ {
     ImColor mid         { ImColor::HSV(0.0f, 0.00f, 0.600f) };
     ImColor dark        { ImColor::HSV(0.0f, 0.00f, 0.498f) };
     ImColor accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
-
-    ImColor redFill     { ImColor::HSV(0.0f, 0.75f, 0.75f) };
-    ImColor redStroke   { ImColor::HSV(0.0f, 0.0f, 0.1f) };
-
-    ImColor greenFill   { ImColor::HSV(0.33f, 0.75f, 0.75f) };
-    ImColor greenStroke { ImColor::HSV(0.33f, 0.0f, 0.1f) };
-
-    ImColor blueFill    { ImColor::HSV(0.58f, 0.75f, 0.75f) };
-    ImColor blueStroke  { ImColor::HSV(0.58f, 0.0f, 0.1f) };
     
     float radius { 0.0f };
 
@@ -113,15 +122,6 @@ struct Sequencer {
     // a long-running event? Default is to stop the event
     // at the end.
     bool splitEndEvent { false };
-
-    // Temp
-    std::unordered_map<int, Vector2i> redChannel;
-    std::unordered_map<int, Vector2i> greenChannel;
-    std::unordered_map<int, Vector2i> blueChannel;
-
-    std::vector<Event> redEvents;
-    std::vector<Event> greenEvents;
-    std::vector<Event> blueEvents;
 };
 
 
@@ -283,19 +283,12 @@ void Sequencer::draw() {
         auto drawEvents = [&]() {
             int yOffset = 0;
 
-            for (auto* events : { &redEvents, &greenEvents, &blueEvents }) {
-                for (std::size_t i=0; i < events->size(); ++i) {
-                    auto& event = events->at(i);
+            Registry.view<Events, Color>().each([&](auto& events, const auto& color) {
+                for (std::size_t i=0; i < events.size(); ++i) {
+                    auto& event = events.at(i);
 
                     int startTime = event.time;
                     int endTime = startTime + event.length;
-
-                    ImColor fill = yOffset == 0 ? EditorTheme.redFill :
-                                   yOffset == 1 ? EditorTheme.greenFill :
-                                                  EditorTheme.blueFill;
-                    ImColor stroke = yOffset == 0 ? EditorTheme.redStroke :
-                                     yOffset == 1 ? EditorTheme.greenStroke :
-                                                    EditorTheme.blueStroke;
 
                     float xMin = static_cast<float>(startTime) * zoom_ / stride_;
                     float xMax = static_cast<float>(endTime) * zoom_ / stride_;
@@ -307,12 +300,12 @@ void Sequencer::draw() {
                     yMin += C.y + (lineHeight * yOffset);
                     yMax += C.y + (lineHeight * yOffset);
 
-                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, fill, EditorTheme.radius);
-                    painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, stroke, EditorTheme.radius);
+                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, color.fill, EditorTheme.radius);
+                    painter->AddRect({ xMin, yMin }, { xMax, yMax - 1 }, color.stroke, EditorTheme.radius);
                 }
 
                 yOffset += 1;
-            }
+            });
         };
 
         drawTimelineBackground();
@@ -339,6 +332,7 @@ public:
     void drawTimeline();
     void drawCentralWidget();
 
+    void setup();
     void clear();
     void updatePositions();
 
@@ -366,14 +360,12 @@ private:
     bool _showMetrics { false };
     bool _showStyleEditor { false };
 
-
     Vector2i _redPos { 300, 50 };
     Vector2i _greenPos { 550, 50 };
     Vector2i _bluePos { 800, 50 };
     Vector2i _redInitialPos { 300, 50 };
     Vector2i _greenInitialPos { 550, 50 };
     Vector2i _blueInitialPos { 800, 50 };
-
 };
 
 
@@ -431,6 +423,42 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
         GL::Renderer::BlendEquation::Add);
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
         GL::Renderer::BlendFunction::OneMinusSourceAlpha);
+
+    setup();
+}
+
+
+void Application::setup() {
+    auto red = Registry.create();
+    auto green = Registry.create();
+    auto blue = Registry.create();
+
+    Registry.assign<Name>(red, "Red");
+    Registry.assign<Size>(red, Vector2i{ 100, 100 });
+    Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
+    Registry.assign<Position>(red, Vector2i{ 300, 50 });
+    Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 });
+    Registry.assign<Events>(red);
+    Registry.assign<Channel>(red);
+    Registry.assign<SmartButtonState>(red);
+
+    Registry.assign<Name>(green, "green");
+    Registry.assign<Size>(green, Vector2i{ 100, 100 });
+    Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
+    Registry.assign<Position>(green, Vector2i{ 500, 50 });
+    Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 });
+    Registry.assign<Events>(green);
+    Registry.assign<Channel>(green);
+    Registry.assign<SmartButtonState>(green);
+
+    Registry.assign<Name>(blue, "blue");
+    Registry.assign<Size>(blue, Vector2i{ 100, 100 });
+    Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
+    Registry.assign<Position>(blue, Vector2i{ 700, 50 });
+    Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 });
+    Registry.assign<Events>(blue);
+    Registry.assign<Channel>(blue);
+    Registry.assign<SmartButtonState>(blue);
 }
 
 
@@ -438,13 +466,10 @@ auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
 void Application::clear() {
-    _sequencer.redChannel.clear();
-    _sequencer.greenChannel.clear();
-    _sequencer.blueChannel.clear();
-
-    _sequencer.redEvents.clear();
-    _sequencer.greenEvents.clear();
-    _sequencer.blueEvents.clear();
+    Registry.view<Channel, Events>().each([](auto& channel, auto& events) {
+        channel.clear();
+        events.clear();
+    });
 }
 
 
@@ -544,164 +569,69 @@ void Application::drawShapes() {
     ImVec2 size = ImGui::GetWindowSize();
     Vector2i shapeSize { 100, 100 };
 
-    ImGui::Begin("Shapes", nullptr);
-    {
-        static SmartButtonState red { 0 };
-        static SmartButtonState green { 0 };
-        static SmartButtonState blue { 0 };
-
-        auto size = ImVec2((float)shapeSize.x(), (float)shapeSize.y());
-        auto redPos = ImVec2((float)_redPos.x(), (float)_redPos.y());
-        auto greenPos = ImVec2((float)_greenPos.x(), (float)_greenPos.y());
-        auto bluePos = ImVec2((float)_bluePos.x(), (float)_bluePos.y());
-
-        ImGui::SetCursorPos(redPos);
-        SmartButton("Dragdoll", red, size);
-        ImGui::SetCursorPos(greenPos);
-        SmartButton("Bendoll", green, size);
-        ImGui::SetCursorPos(bluePos);
-        SmartButton("Blue", blue, size);
-
-        auto delta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
-
-        static Event* redCurrent { nullptr };
-        static Event* greenCurrent { nullptr };
-        static Event* blueCurrent { nullptr };
-
-        if (red & SmartButtonState_Pressed) {
-            _sequencer.redEvents.push_back({ _sequencer.currentTime, 1 });
-            redCurrent = &_sequencer.redEvents.back();
-        }
-
-        else if (red & SmartButtonState_Dragged) {
-            if (redCurrent != nullptr && redCurrent->time + redCurrent->length > _sequencer.currentTime) {
-                redCurrent = nullptr;
-            }
-
-            if (redCurrent != nullptr) {
-                _sequencer.redChannel[_sequencer.currentTime] = delta;
-                redCurrent->length += 1;
-            }
-        }
-
-        else if (red & SmartButtonState_Released) {
-            redCurrent = nullptr;
-        }
-
-
-
-        if (green & SmartButtonState_Pressed) {
-            _sequencer.greenEvents.push_back({ _sequencer.currentTime, 1 });
-            greenCurrent = &_sequencer.greenEvents.back();
-        }
-
-        else if (green & SmartButtonState_Released) {
-            greenCurrent = nullptr;
-        }
-
-        else if (green & SmartButtonState_Dragged) {
-            if (greenCurrent != nullptr && greenCurrent->time + greenCurrent->length > _sequencer.currentTime) {
-                greenCurrent = nullptr;
-            }
-
-            if (greenCurrent != nullptr) {
-                _sequencer.greenChannel[_sequencer.currentTime] = delta;
-                greenCurrent->length += 1;
-            }
-        }
-
-
-
-        if (blue & SmartButtonState_Pressed) {
-            _sequencer.blueEvents.push_back({ _sequencer.currentTime, 1 });
-            blueCurrent = &_sequencer.blueEvents.back();
-        }
-
-        else if (blue & SmartButtonState_Released) {
-            blueCurrent = nullptr;
-        }
-
-        else if (blue & SmartButtonState_Dragged) {
-            if (blueCurrent != nullptr && blueCurrent->time + blueCurrent->length > _sequencer.currentTime) {
-                blueCurrent = nullptr;
-            }
-
-            if (blueCurrent != nullptr) {
-                _sequencer.blueChannel[_sequencer.currentTime] = delta;
-                blueCurrent->length += 1;
-            }
-        }
-
-        else if (blue & SmartButtonState_Released) {
-            blueCurrent = nullptr;
-        }
-
-        // Split events occurring past the end frame
-        // for (auto* e : { &_sequencer.redEvents, &_sequencer.greenEvents, &_sequencer.blueEvents }) {
-        //     if (e->size() < 1) continue;
-
-        //     auto last = e->back();
-
-        //     if (last.time + last.length > _sequencer.currentTime) {
-        //         last.length = _sequencer.currentTime - last.time;
-        //         e->push_back({ Event::Off, _sequencer.range.y() });
-        //         e->push_back({ Event::On, _sequencer.currentTime });
-        //     }
-        // }
-
+    auto drawCross = [&](ImVec2 corner, ImColor color) {
         auto root = ImGui::GetWindowPos();
         auto painter = ImGui::GetWindowDrawList();
+        auto size = ImVec2((float)shapeSize.x(), (float)shapeSize.y());
 
-        auto drawCross = [&](ImVec2 corner, ImColor color) {
-            auto size = ImVec2((float)shapeSize.x(), (float)shapeSize.y());
+        auto abscorner = root + corner;
+        auto hlineStart = ImVec2(abscorner.x, abscorner.y + size.y / 2);
+        auto hlineEnd   = ImVec2(hlineStart.x + size.x, hlineStart.y);
+        auto vlineStart = ImVec2(abscorner.x + size.x / 2, abscorner.y);
+        auto vlineEnd   = ImVec2(vlineStart.x, vlineStart.y + size.y);
 
-            auto hlineStart = ImVec2(corner.x, corner.y + size.y / 2);
-            auto hlineEnd   = ImVec2(hlineStart.x + size.x, hlineStart.y);
-            auto vlineStart = ImVec2(corner.x + size.x / 2, corner.y);
-            auto vlineEnd   = ImVec2(vlineStart.x, vlineStart.y + size.y);
+        painter->AddCircleFilled(
+            abscorner,
+            5.0f,
+            ImColor::HSV(0.0, 0.0, 1.0f)
+        );
+    };
 
-            painter->AddCircleFilled(
-                corner,
-                // ImVec2(corner.x + size.x / 2, corner.y + size.y / 2),
-                5.0f,
-                ImColor::HSV(0.0, 0.0, 1.0f)
-            );
-        };
+    auto time = _sequencer.currentTime;
+    ImGui::Begin("Shapes", nullptr);
+    {
+        Registry.view<Name, Position, Size, Color, Events, Channel, SmartButtonState>().each([&drawCross, time](
+                                                                    auto entity,
+                                                                    const auto& name,
+                                                                    const auto& position,
+                                                                    const auto& size,
+                                                                    const auto& color,
+                                                                    auto& events,
+                                                                    auto& channel,
+                                                                    auto& state) {
+            static Event* current { nullptr };
 
-        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
-            auto redPos = _redPos;
-            auto topLeft = Vector2(redPos);
-            auto bottomRight = Vector2(redPos + shapeSize);
+            auto imsize = ImVec2((float)size.x(), (float)size.y());
+            auto impos = ImVec2((float)position.x(), (float)position.y());
+            auto imdelta = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
 
-            auto itl = ImVec2(topLeft.x(), topLeft.y());
-            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+            ImGui::SetCursorPos(impos);
+            SmartButton(name.text, state, imsize);
 
-            drawCross(root + itl, EditorTheme.redFill);
-        }
+            if (state & SmartButtonState_Pressed) {
+                events.push_back({ Event::Red, time, 1 });
+                current = &events.back();
+            }
 
-        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
-            auto greenPos = _greenPos;
-            auto topLeft = Vector2(greenPos);
-            auto bottomRight = Vector2(greenPos + shapeSize);
+            else if (state & SmartButtonState_Dragged) {
+                if (current != nullptr && current->time + current->length > time) {
+                    current = nullptr;
+                }
 
-            auto itl = ImVec2(topLeft.x(), topLeft.y());
-            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
+                if (current != nullptr) {
+                    channel[time] = imdelta;
+                    current->length += 1;
+                }
+            }
 
-            drawCross(root + itl, EditorTheme.greenFill);
-        }
+            else if (state & SmartButtonState_Released) {
+                current = nullptr;
+            }
 
-        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
-            auto bluePos = _bluePos;
-            auto topLeft = Vector2(bluePos);
-            auto bottomRight = Vector2(bluePos + shapeSize);
-
-            auto itl = ImVec2(topLeft.x(), topLeft.y());
-            auto ibr = ImVec2(bottomRight.x(), bottomRight.y());
-
-            drawCross(root + itl, EditorTheme.blueFill);
-        }
-
-
+            if (channel.count(time)) {
+                drawCross(impos, color.fill);
+            }
+        });
     }
     ImGui::End();
 }
@@ -725,12 +655,6 @@ void Application::drawThemeEditor() {
             ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.Value.x);
             ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.Value.x);
             ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.Value.x);
-            ImGui::ColorEdit4("redFill##editor", &EditorTheme.redFill.Value.x);
-            ImGui::ColorEdit4("redStroke##editor", &EditorTheme.redStroke.Value.x);
-            ImGui::ColorEdit4("greenFill##editor", &EditorTheme.greenFill.Value.x);
-            ImGui::ColorEdit4("greenStroke##editor", &EditorTheme.greenStroke.Value.x);
-            ImGui::ColorEdit4("blueFill##editor", &EditorTheme.blueFill.Value.x);
-            ImGui::ColorEdit4("blueStroke##editor", &EditorTheme.blueStroke.Value.x);
         }
     }
     ImGui::End();
@@ -738,21 +662,19 @@ void Application::drawThemeEditor() {
 
 
 void Application::updatePositions() {
-    if (_sequencer.currentTime == _sequencer.range.x()) {
-        _redPos = _redInitialPos;
-        _greenPos = _greenInitialPos;
-        _bluePos = _blueInitialPos;
+    auto startTime = _sequencer.range.x();
+    auto currentTime = _sequencer.currentTime;
+
+    if (currentTime == startTime) {
+        Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
+            position = initial;
+        });
     }
     else {
-        if (_sequencer.redChannel.count(_sequencer.currentTime)) {
-            _redPos += _sequencer.redChannel[_sequencer.currentTime];
-        }
-        if (_sequencer.greenChannel.count(_sequencer.currentTime)) {
-            _greenPos += _sequencer.greenChannel[_sequencer.currentTime];
-        }
-        if (_sequencer.blueChannel.count(_sequencer.currentTime)) {
-            _bluePos += _sequencer.blueChannel[_sequencer.currentTime];
-        }
+        Registry.view<Position, Channel>().each([&](auto& position, const auto& channel) {
+            if (!channel.count(currentTime)) return;
+            position += channel.at(currentTime);
+        });
     }
 }
 
