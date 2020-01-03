@@ -955,7 +955,7 @@ void Application::drawRigids() {
                 current = &events.back();
 
                 if (shouldSort) {
-                    Registry.shouldSort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
+                    Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
                         return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
                     });
 
