@@ -1,30 +1,11 @@
-#pragma once
-
-
-inline ImVec4 operator*(const ImVec4& vec, const float mult) {
-    return ImVec4{ vec.x * mult, vec.y * mult, vec.z * mult, vec.w };
-}
-
-inline ImVec2 operator+(const ImVec2& vec, const float value) {
-    return ImVec2{ vec.x + value, vec.y + value };
-}
-
-inline ImVec2 operator+(const ImVec2& vec, const ImVec2 value) {
-    return ImVec2{ vec.x + value.x, vec.y + value.y };
-}
-
-inline ImVec2 operator-(const ImVec2& vec, const ImVec2 value) {
-    return ImVec2{ vec.x - value.x, vec.y - value.y };
-}
-
-// inline ImColor operator*(const ImColor& vec, const float value) {
-//     return ImColor{ vec.r + value, vec.g + value, vec.b + value, vec.a };
-// }
-
 
 inline void Theme() {
+    auto mult = [](const ImVec4& vec, const float value) {
+        return ImVec4{ vec.x * value, vec.y * value, vec.z * value, vec.w };
+    };
+
     ImGuiStyle & style = ImGui::GetStyle();
-    ImVec4 * colors = style.Colors;
+    ImVec4* colors = style.Colors;
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, -1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(2.0f, 3.0f));
@@ -68,13 +49,13 @@ inline void Theme() {
     colors[ImGuiCol_ButtonActive]           = ImVec4(0.76f, 0.76f, 0.76f, 1.00f);
     colors[ImGuiCol_Header]                 = colors[ImGuiCol_TitleBg];
     colors[ImGuiCol_HeaderHovered]          = ImVec4(0.250f, 0.400f, 0.500f, 1.000f);
-    colors[ImGuiCol_HeaderActive]           = colors[ImGuiCol_HeaderHovered] * 0.9f;
+    colors[ImGuiCol_HeaderActive]           = mult(colors[ImGuiCol_HeaderHovered], 0.9f);
     colors[ImGuiCol_Separator]              = ImVec4(0.000f, 0.000f, 0.000f, 0.137f);
     colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.700f, 0.671f, 0.600f, 0.290f);
     colors[ImGuiCol_SeparatorActive]        = ImVec4(0.702f, 0.671f, 0.600f, 0.674f);
     colors[ImGuiCol_ResizeGrip]             = colors[ImGuiCol_Header];
-    colors[ImGuiCol_ResizeGripHovered]      = colors[ImGuiCol_Header] * 1.4f;
-    colors[ImGuiCol_ResizeGripActive]       = colors[ImGuiCol_Header] * 1.6f;
+    colors[ImGuiCol_ResizeGripHovered]      = mult(colors[ImGuiCol_Header], 1.4f);
+    colors[ImGuiCol_ResizeGripActive]       = mult(colors[ImGuiCol_Header], 1.6f);
     colors[ImGuiCol_PlotLines]              = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
     colors[ImGuiCol_PlotLinesHovered]       = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
     colors[ImGuiCol_PlotHistogram]          = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
