@@ -53,6 +53,11 @@ using Position = Vector2i;
 struct InitialPosition : Vector2i { using Vector2i::Vector2i; };
 struct StartPosition : Vector2i { using Vector2i::Vector2i; };
 struct Size : Vector2i { using Vector2i::Vector2i; };
+struct Index {
+    int absolute { 0 };
+    int relative { 0 };
+};
+struct Selected {};;
 using BenddollEvents = std::vector<BendollEvent>;
 using DragdollEvents = std::vector<DragdollEvent>;
 
@@ -66,16 +71,27 @@ struct Name {
 };
 
 
-static struct OutlinerTheme_ {
+static struct GlobalTheme_ {
+    ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.3f) };
+    ImVec4 borderInner  { ImColor::HSV(0.0f, 0.0f, 0.4f) };
+    ImVec4 borderOuter  { ImColor::HSV(0.0f, 0.0f, 0.3f) };
+
+    float borderWidth { 2.0f };
+
+} GlobalTheme;
+
+
+static struct ListerTheme_ {
     ImVec4 background  { ImColor::HSV(0.0f, 0.0f, 0.200f) };
+    ImVec4 alternate   { ImColor::HSV(0.0f, 0.00f, 1.0f, 0.02f) };
     ImVec4 text        { ImColor::HSV(0.0f, 0.0f, 0.850f) };
     ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.150f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
     
-    float width { 200.0f };
+    float width { 100.0f };
 
-} OutlinerTheme;
+} ListerTheme;
 
 
 static struct TimelineTheme_ {
@@ -84,7 +100,7 @@ static struct TimelineTheme_ {
     ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.322f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
 
-    float height { 60.0f };
+    float height { 40.0f };
 
 } TimelineTheme;
 
@@ -134,7 +150,7 @@ static SmartButtonState SmartButton(const char* label, ImVec2 size = {0, 0}) {
 
 
 struct Sequencer {
-    void draw();
+    void draw(bool* p_open = nullptr);
     void update();
     void step(int time);
 
@@ -144,7 +160,8 @@ struct Sequencer {
     int currentTime { 0 };
     int previousTime { 0 };
     float zoom { 200.0f };
-    float scroll { 0.0f };
+    float hscroll { 8.0f };
+    float vscroll { 8.0f };
     int stride { 3 };
 
     // If an event reaches beyond the end and loops around,
@@ -223,8 +240,11 @@ void Sequencer::step(int time) {
 }
 
 
-void Sequencer::draw() {
-    ImGui::Begin("Editor", nullptr);
+void Sequencer::draw(bool* p_open) {
+    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
+                                 | ImGuiWindowFlags_NoScrollWithMouse;
+
+    ImGui::Begin("Editor", p_open, windowFlags);
     {
         auto* painter = ImGui::GetWindowDrawList();
         const auto& style = ImGui::GetStyle();
@@ -234,49 +254,115 @@ void Sequencer::draw() {
         float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
 
         /**
-         * @brief Sequencer divided into 3 panels
+         * @brief Sequencer divided into 4 panels
          *
-         *     ___________________________
-         *    |       |                   |
-         *    |       |        B          |
-         *    |       |___________________|
-         *    |       |                   |
-         *    |   A   |                   |
-         *    |       |                   |
-         *    |       |        C          |
-         *    |       |                   |
-         *    |       |                   |
-         *    |_______|___________________|
+         *          ___________________________
+         *         |       |                   |
+         *   Cross |   X   |        B          | Timeline
+         *         |_______|___________________|
+         *         |       |                   |
+         *         |       |                   |
+         *         |       |                   |
+         *  Lister |   A   |        C          | Editor
+         *         |       |                   |
+         *         |       |                   |
+         *         |_______|___________________|
          *
          */
 
-        auto A = windowPos;
-        auto B = windowPos + ImVec2{ OutlinerTheme.width, 0.0f };
-        auto C = windowPos + ImVec2{ OutlinerTheme.width, TimelineTheme.height };
+        auto X = windowPos;
+        auto A = windowPos + ImVec2{ 0.0f, TimelineTheme.height };
+        auto B = windowPos + ImVec2{ ListerTheme.width, 0.0f };
+        auto C = windowPos + ImVec2{ ListerTheme.width, TimelineTheme.height };
 
         int stride_ = stride * 5;  // How many frames to skip drawing
         float zoom_ = zoom / stride;
         int minTime = range.x() / stride_;
         int maxTime = range.y() / stride_;
 
-        auto drawOutlinerBackground = [&]() {
+        auto drawCrossBackground = [&]() {
             painter->AddRectFilled(
-                A,
-                A + ImVec2{ OutlinerTheme.width, windowSize.y },
-                ImColor(OutlinerTheme.background)
+                X,
+                X + ImVec2{ ListerTheme.width + 1, TimelineTheme.height },
+                ImColor(ListerTheme.background)
             );
 
-            painter->AddLine(A + ImVec2{ OutlinerTheme.width, 0.0f },
-                             A + ImVec2{ OutlinerTheme.width, windowSize.y },
-                             ImColor(OutlinerTheme.dark));
+            // Border
+            painter->AddLine(X + ImVec2{ ListerTheme.width, 0.0f },
+                             X + ImVec2{ ListerTheme.width, TimelineTheme.height },
+                             ImColor(GlobalTheme.dark),
+                             GlobalTheme.borderWidth);
+
+            painter->AddLine(X + ImVec2{ 0.0f, TimelineTheme.height },
+                             X + ImVec2{ ListerTheme.width + 1, TimelineTheme.height },
+                             ImColor(GlobalTheme.dark),
+                             GlobalTheme.borderWidth);
+        };
+
+        auto drawListerBackground = [&]() {
+            // Drop Shadow
+            painter->AddRectFilled(
+                A,
+                A + ImVec2{ ListerTheme.width + 3.0f, windowSize.y },
+                ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+            );
+            painter->AddRectFilled(
+                A,
+                A + ImVec2{ ListerTheme.width + 2.0f, windowSize.y },
+                ImColor(0.0f, 0.0f, 0.0f, 0.2f)
+            );
+
+            // Fill
+            painter->AddRectFilled(
+                A,
+                A + ImVec2{ ListerTheme.width, windowSize.y },
+                ImColor(ListerTheme.background)
+            );
+
+            // Stipple
+            bool isOdd { false };
+            for (float y = 0; y < windowSize.y; y += lineHeight) {
+                isOdd ^= true;
+
+                if (isOdd) painter->AddRectFilled(
+                    A + ImVec2{ 0, y + vscroll },
+                    A + ImVec2{ ListerTheme.width, y + vscroll + lineHeight - 1 },
+                    ImColor(ListerTheme.alternate)
+                );
+            }
+
+            // Border
+            painter->AddLine(A + ImVec2{ ListerTheme.width, 0.0f },
+                             A + ImVec2{ ListerTheme.width, windowSize.y },
+                             ImColor(GlobalTheme.dark),
+                             GlobalTheme.borderWidth);
         };
 
         auto drawTimelineBackground = [&]() {
+            // Drop Shadow
+            painter->AddRectFilled(
+                B,
+                B + ImVec2{ windowSize.x, TimelineTheme.height + 3.0f },
+                ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+            );
+            painter->AddRectFilled(
+                B,
+                B + ImVec2{ windowSize.x, TimelineTheme.height + 2.0f },
+                ImColor(0.0f, 0.0f, 0.0f, 0.2f)
+            );
+
+            // Fill
             painter->AddRectFilled(
                 B,
                 B + ImVec2{ windowSize.x, TimelineTheme.height },
                 ImColor(TimelineTheme.background)
             );
+
+            // Border
+            painter->AddLine(B + ImVec2{ 0.0f, TimelineTheme.height },
+                             B + ImVec2{ windowSize.x, TimelineTheme.height },
+                             ImColor(GlobalTheme.dark),
+                             GlobalTheme.borderWidth);
         };
 
         auto drawEditorBackground = [&]() {
@@ -292,10 +378,10 @@ void Sequencer::draw() {
                 float xMin = time * zoom_;
                 float xMax = 0.0f;
                 float yMin = 0.0f;
-                float yMax = TimelineTheme.height;
+                float yMax = TimelineTheme.height - 1;
 
-                xMin += B.x + scroll;
-                xMax += B.x + scroll;
+                xMin += B.x + hscroll;
+                xMax += B.x + hscroll;
                 yMin += B.y;
                 yMax += B.y;
 
@@ -303,7 +389,7 @@ void Sequencer::draw() {
                 painter->AddText(
                     ImGui::GetFont(),
                     ImGui::GetFontSize() * 0.85f,
-                    ImVec2(xMin + 5.0f, yMin + lineHeight),
+                    ImVec2{ xMin + 5.0f, yMin },
                     ImColor(TimelineTheme.text),
                     std::to_string(time * stride_).c_str()
                 );
@@ -313,7 +399,10 @@ void Sequencer::draw() {
                 for (int z = 0; z < 5 - 1; z++) {
                     const auto innerSpacing = zoom_ / 5;
                     auto subline = innerSpacing * (z + 1);
-                    painter->AddLine(ImVec2(xMin + subline, yMin + 35), ImVec2(xMin + subline, yMax), ImColor(TimelineTheme.mid));
+                    painter->AddLine(
+                        ImVec2{ xMin + subline, yMin + (TimelineTheme.height * 0.5f) },
+                        ImVec2{ xMin + subline, yMax },
+                        ImColor(TimelineTheme.mid));
                 }
             }
         };
@@ -324,8 +413,8 @@ void Sequencer::draw() {
             float yMin = TimelineTheme.height;
             float yMax = TimelineTheme.height;
 
-            xMin += B.x + scroll;
-            xMax += B.x + scroll;
+            xMin += B.x + hscroll;
+            xMax += B.x + hscroll;
             yMin += B.y;
             yMax += B.y;
 
@@ -339,8 +428,8 @@ void Sequencer::draw() {
                 float yMin = 0.0f;
                 float yMax = windowSize.y;
 
-                xMin += C.x + scroll;
-                xMax += C.x + scroll;
+                xMin += C.x + hscroll;
+                xMax += C.x + hscroll;
                 yMin += C.y;
                 yMax += C.y;
 
@@ -362,8 +451,8 @@ void Sequencer::draw() {
             auto yMin = 0.0f;
             auto yMax = windowSize.y;
 
-            xMin += B.x + scroll;
-            xMax += B.x + scroll;
+            xMin += B.x + hscroll;
+            xMax += B.x + hscroll;
             yMin += B.y;
             yMax += B.y;
 
@@ -390,10 +479,10 @@ void Sequencer::draw() {
             float xMin = 0.0f;
             float xMax = windowSize.x;
 
-            xMin += C.x + scroll;
-            xMax += C.x + scroll;
-            yMin += C.y;
-            yMax += C.y;
+            xMin += A.x;
+            xMax += A.x;
+            yMin += A.y + vscroll;
+            yMax += A.y + vscroll;
 
             bool isOdd = false;
             for (float y = yMin; y < yMax; y += lineHeight) {
@@ -419,10 +508,8 @@ void Sequencer::draw() {
          *
          */
         auto drawEvents = [&]() {
-            int yOffset = 0;
-
-            Registry.view<Name, DragdollEvents, Color>().each([&](const auto& name, auto& events, const auto& color) {
-                int count { 0 };
+            Registry.view<Index, Name, DragdollEvents, Color>().each([&](const auto index, const auto& name, auto& events, const auto& color) {
+                unsigned int count { 0 };
 
                 for (auto& event : events) {
                     static int initialTime { 0 };
@@ -431,13 +518,13 @@ void Sequencer::draw() {
 
                     float xMin = static_cast<float>(startTime) * zoom_ / stride_;
                     float xMax = static_cast<float>(endTime) * zoom_ / stride_;
-                    float yMin = lineHeight * yOffset;
+                    float yMin = lineHeight * index.relative;
                     float yMax = yMin + lineHeight;
 
-                    xMin += C.x + scroll;
-                    xMax += C.x + scroll;
-                    yMin += C.y;
-                    yMax += C.y;
+                    xMin += C.x + hscroll;
+                    xMax += C.x + hscroll;
+                    yMin += C.y + vscroll;
+                    yMax += C.y + vscroll;
 
                     ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
 
@@ -496,32 +583,63 @@ void Sequencer::draw() {
 
                     count++;
                 }
-
-                yOffset += 1;
             });
+        };
 
+        auto drawLister = [&]() {
+            const ImVec2 size { ListerTheme.width, lineHeight };
+
+            Registry.view<Name, Index, DragdollEvents>().each([&](auto entity, const auto& name, const auto& index, const auto&) {
+                float xMin = 0.0f;
+                float xMax = ListerTheme.width;
+                float yMin = lineHeight * index.relative;
+                float yMax = 0.0f;
+
+                xMin += A.x;
+                xMax += A.x;
+                yMin += A.y + vscroll;
+                yMax += A.y + vscroll;
+
+                ImGuiSelectableFlags flags = 0;
+                auto topLeftGlobal = ImVec2{ xMin, yMin };
+                auto topLeftLocal = topLeftGlobal - ImGui::GetWindowPos();
+
+                const auto padding = 5.0f;
+                const auto textSize = ImGui::CalcTextSize(name.text);
+                painter->AddText(topLeftGlobal + ImVec2{ ListerTheme.width - textSize.x - padding, 0.0f }, ImColor(ListerTheme.text), name.text);
+            });
         };
 
         painter->PushClipRect(B + ImVec2{ 1.0f, 0.0f }, ImGui::GetWindowPos() + ImGui::GetWindowSize());
         {
             drawEditorBackground();
-            drawTimelineBackground();
-            drawTimeline();
             drawHorizontalGrid();
             drawHorizontalBar();
             drawVerticalGrid();
             drawEvents();
             drawCurrentTime();
+            drawTimelineBackground();
+            drawTimeline();
         }
         painter->PopClipRect();
 
-        drawOutlinerBackground();
+        drawListerBackground();
+        drawLister();
+        drawCrossBackground();
 
-        ImGui::SetCursorPos({ OutlinerTheme.width, titlebarHeight });
-        ImGui::InvisibleButton("##scroll", ImVec2{ windowSize.x, TimelineTheme.height });
+        // HID
+        ImGui::SetCursorPos({ ListerTheme.width, titlebarHeight });
+        ImGui::InvisibleButton("##hscroll", ImVec2{ windowSize.x, TimelineTheme.height });
 
         if (ImGui::IsItemActive()) {
-            scroll += ImGui::GetIO().MouseDelta.x;
+            hscroll += ImGui::GetIO().MouseDelta.x;
+        }
+
+        ImGui::SetCursorPos({ 0.0f, TimelineTheme.height });
+        ImGui::InvisibleButton("##vscroll", ImVec2{ ListerTheme.width, windowSize.y });
+
+        if (ImGui::IsItemActive()) {
+            vscroll += ImGui::GetIO().MouseDelta.y;
         }
     }
     ImGui::End();
@@ -564,6 +682,7 @@ private:
     bool _playing { true };
     bool _relative { true };
 
+    bool _showSequencer { true };
     bool _showMetrics { false };
     bool _showStyleEditor { false };
 
@@ -639,24 +758,43 @@ void Application::setup() {
     auto red = Registry.create();
     auto green = Registry.create();
     auto blue = Registry.create();
+    auto purple = Registry.create();
+    auto gray = Registry.create();
 
     Registry.assign<Name>(red, "Red Rigid");
+    Registry.assign<Index>(red, 0, 0);
     Registry.assign<Size>(red, Vector2i{ 100, 100 });
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
     Registry.assign<Position>(red, Vector2i{ 300, 50 });
     Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 });
 
     Registry.assign<Name>(green, "Green Rigid");
+    Registry.assign<Index>(green, 1, 0);
     Registry.assign<Size>(green, Vector2i{ 100, 100 });
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
     Registry.assign<Position>(green, Vector2i{ 500, 50 });
     Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 });
 
     Registry.assign<Name>(blue, "Blue Rigid");
+    Registry.assign<Index>(blue, 2, 0);
     Registry.assign<Size>(blue, Vector2i{ 100, 100 });
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
     Registry.assign<Position>(blue, Vector2i{ 700, 50 });
     Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 });
+
+    Registry.assign<Name>(purple, "Purple Rigid");
+    Registry.assign<Index>(purple, 3, 0);
+    Registry.assign<Size>(purple, Vector2i{ 80, 100 });
+    Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f), ImColor::HSV(0.45f, 0.75f, 0.1f));
+    Registry.assign<Position>(purple, Vector2i{ 350, 150 });
+    Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 });
+
+    Registry.assign<Name>(gray, "Gray Rigid");
+    Registry.assign<Index>(gray, 4, 0);
+    Registry.assign<Size>(gray, Vector2i{ 80, 40 });
+    Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f), ImColor::HSV(0.55f, 0.0f, 0.1f));
+    Registry.assign<Position>(gray, Vector2i{ 550, 200 });
+    Registry.assign<InitialPosition>(gray, Vector2i{ 550, 200 });
 }
 
 
@@ -664,9 +802,7 @@ auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
 void Application::clear() {
-    Registry.view<DragdollEvents>().each([](auto& events) {
-        events.clear();
-    });
+    Registry.reset<DragdollEvents>();
 }
 
 
@@ -759,7 +895,8 @@ void Application::drawTransport() {
         }
 
         ImGui::SliderFloat("Zoom", &_sequencer.zoom, 20.0f, 400.0f);
-        ImGui::DragFloat("Scroll", &_sequencer.scroll);
+        ImGui::DragFloat("Horizontal Scroll", &_sequencer.hscroll);
+        ImGui::DragFloat("Vertical Scroll", &_sequencer.vscroll);
         ImGui::SliderInt("Stride", &_sequencer.stride, 1, 5);
 
         ImGui::Checkbox("Relative", &_relative);
@@ -788,13 +925,10 @@ void Application::drawRigids() {
     auto currentTime = _sequencer.currentTime;
     ImGui::Begin("Shapes", nullptr);
     {
-        Registry.view<Name, Position, Size, Color>().each([&](auto entity,
-                                                              const auto& name,
-                                                              const auto& position,
-                                                              const auto& size,
-                                                              const auto& color) {
-            auto& events = Registry.get_or_assign<DragdollEvents>(entity);
-
+        Registry.view<Name, Position, Size>().each([&](auto entity,
+                                                       const auto& name,
+                                                       const auto& position,
+                                                       const auto& size) {
             static DragdollEvent* current { nullptr };
 
             auto imsize = ImVec2((float)size.x(), (float)size.y());
@@ -815,8 +949,26 @@ void Application::drawRigids() {
                 event.releasePosition = position;
                 event.data.push_back(mousePosition);
 
+                const bool shouldSort = !Registry.has<DragdollEvents>(entity);
+                auto& events = Registry.get_or_assign<DragdollEvents>(entity);
                 events.push_back(event);
                 current = &events.back();
+
+                if (shouldSort) {
+                    Registry.shouldSort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
+                        return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
+                    });
+
+                    // Update the relative positions of each event
+                    // TODO: Is this really the most efficient way to do this?
+                    int previous { 0 };
+                    Registry.view<Index>().each([&](auto entity, auto& index) {
+                        if (Registry.has<DragdollEvents>(entity)) {
+                            index.relative = previous;
+                            previous++;
+                        }
+                    });
+                }
             }
 
             else if (state & SmartButtonState_Dragged) {
@@ -835,7 +987,13 @@ void Application::drawRigids() {
                 current = nullptr;
             }
 
+        });
+
+        Registry.view<Position, DragdollEvents, Color>().each([&](const auto& position,
+                                                                  const auto& events,
+                                                                  const auto& color) {
             if (auto ovl = _sequencer.overlapping(events)) {
+                auto impos = ImVec2((float)position.x(), (float)position.y());
                 impos.x += ovl->offset.x();
                 impos.y += ovl->offset.y();
                 drawCursor(impos, color.fill);
@@ -886,7 +1044,7 @@ void Application::drawEvent() {
         _sequencer.step(1);
     }
 
-    _sequencer.draw();
+    _sequencer.draw(&_showSequencer);
 
     if (_showMetrics) {
         ImGui::ShowMetricsWindow(&_showMetrics);
@@ -934,6 +1092,7 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Delete) clear();
     if (event.key() == KeyEvent::Key::F1) _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2) _showStyleEditor ^= true;
+    if (event.key() == KeyEvent::Key::F5) _showSequencer ^= true;
     if(_imgui.handleKeyPressEvent(event)) return;
 }
 
