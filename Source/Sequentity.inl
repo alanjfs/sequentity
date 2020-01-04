@@ -1,6 +1,10 @@
 /**
 
-An immediate-mode Sequencer, written in C++ with ImGui, Magnum and EnTT
+---===  Sequentity  ===---
+
+An immediate-mode Sequentity, written in C++ with ImGui, Magnum and EnTT
+
+---=== === === === === ---
 
 - ~2,000 vertices with 15 events, about 1,500 without any
 - Magnum is an open-source OpenGL wrapper with window management and math library baked in
@@ -9,48 +13,45 @@ An immediate-mode Sequencer, written in C++ with ImGui, Magnum and EnTT
 Both of which are optional and unrelated to the sequencer itself, but needed
 to get a window on screen and to manage relevant data.
 
-| Concept        | Description
-|:---------------|:-----------------
-| Event          | An individual coloured bar, with a start, length and additional metadata
-| Channel        | A vector of `Event`s
+
+### Legend
+
+- Event:   An individual coloured bar, with a start, length and additional metadata
+- Channel: A vector of Events
+
+
+### Usage
+
+Data is passed between Sequentity and your host application via the Event
+and Channel structs below.
 
 */
 
 #include <functional>
 #include <vector>
 
-namespace Sequencer {
+namespace Sequentity {
+
+using EventType = int;
+
+// Some example events
+enum EventType_ : std::uint8_t {
+    EventType_Move = 0,
+    EventType_Rotate,
+    EventType_Scale
+};
 
 /**
- * @brief Sequencer Event type
+ * @brief A Sequentity Event
  *
  */
 struct Event {
     int time;
     int length;
 
-    /** Relative the target center, where did the press occur?
-     *
-     * (0, 0)
-     *    .____________
-     *    |            |
-     *    |            |
-     *    |            |
-     *    |    (30, 40)|
-     *    |      .     |
-     *    |______|\____|
-     *           |_\    
-     *             \    
-     *               
-     */
-    Vector2i offset;
-
-    /* In absolute coordinates, where the press occur? */
-    Vector2i pressPosition;
-    Vector2i releasePosition;
-
-    /* Absolute move positions */
-    std::vector<Vector2i> data;
+    // Map your custom data here, along with an optional type
+    void* data { nullptr };
+    EventType type { EventType_Move  };
 };
 
 /**
@@ -64,7 +65,13 @@ using Channel = std::vector<Event>;
  * @brief Main window
  *
  */
-struct Sequencer {
+struct Sequentity {
+
+    // Sequentity reads Event and Channel components from your EnTT registry
+    // but the involvement of EnTT is minimal and easily replaced by your own
+    // implementation. See any reference to _registry below.
+    Sequentity(entt::registry& registry) : _registry(registry) {}
+
     void draw(bool* p_open = nullptr);
     void drawThemeEditor(bool* p_open = nullptr);
 
@@ -74,12 +81,15 @@ struct Sequencer {
     void step(int time);
     void stop();
 
-    const Event* overlapping(const Channel& events);
-    void each_overlapping(const Channel& events, std::function<void(const Event*)>);
+    const Event* overlapping(const Channel& channel);
+    void each_overlapping(const Channel& channel, std::function<void(const Event*)>);
+
+    // State
+    bool playing { false };
+    int currentTime { 0 };
+    Vector2i range { 0, 250 };
 
     // Options
-    Vector2i range { 0, 250 };
-    int currentTime { 0 };
     float zoom[2] { 200.0f, 30.0f };
     float scroll[2] { 8.0f, 8.0f };
     int stride { 3 };
@@ -95,7 +105,7 @@ public:
     void after_stepped(std::function<void(int time)> func) { _after_stepped = func; }
 
 private:
-    bool _playing { false };
+    entt::registry& _registry;
     int _previousTime { 0 };
     std::function<void(int time)> _before_stepped = [](int) {};
     std::function<void(int time)> _after_stepped = [](int) {};
@@ -103,7 +113,7 @@ private:
 
 
 /**
- * @brief A summary of all colours available to Sequencer
+ * @brief A summary of all colours available to Sequentity
  *
  * Hint: These can be edited interactively via the `drawThemeEditor()` window
  *
@@ -113,6 +123,9 @@ static struct GlobalTheme_ {
     ImVec4 dark         { ImColor::HSV(0.0f, 0.0f, 0.3f) };
     ImVec4 borderInner  { ImColor::HSV(0.0f, 0.0f, 0.4f) };
     ImVec4 borderOuter  { ImColor::HSV(0.0f, 0.0f, 0.3f) };
+
+    // Shadows are overlayed, for a gradient-like effect
+    ImVec4 shadow  { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
     float borderWidth { 2.0f };
 
@@ -150,18 +163,22 @@ static struct EditorTheme_ {
     ImVec4 mid         { ImColor::HSV(0.0f, 0.00f, 0.600f) };
     ImVec4 dark        { ImColor::HSV(0.0f, 0.00f, 0.498f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
+    ImVec4 accentLight { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
+    ImVec4 accentDark  { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
     
     float radius { 0.0f };
 
 } EditorTheme;
 
 
-void Sequencer::play() {
-    _playing ^= true;
+void Sequentity::play() {
+    playing ^= true;
 }
 
 
-void Sequencer::step(int time) {
+void Sequentity::step(int time) {
+
+    // Prevent callbacks from being called unnecessarily
     if (currentTime + time == _previousTime) return;
 
     _before_stepped(currentTime);
@@ -182,23 +199,23 @@ void Sequencer::step(int time) {
 }
 
 
-void Sequencer::stop() {
+void Sequentity::stop() {
     step(range.x() - currentTime);
-    _playing = false;
+    playing = false;
 }
 
 
-void Sequencer::update() {
-    if (_playing) {
+void Sequentity::update() {
+    if (playing) {
         step(1);
     }
 }
 
 
-const Event* Sequencer::overlapping(const Channel& events) {
+const Event* Sequentity::overlapping(const Channel& channel) {
     const Event* intersecting { nullptr };
 
-    for (auto& event : events) {
+    for (auto& event : channel) {
         if (event.time <= currentTime && event.time + event.length > currentTime) {
             intersecting = &event;
 
@@ -210,7 +227,7 @@ const Event* Sequencer::overlapping(const Channel& events) {
     return intersecting;
 }
 
-void Sequencer::drawThemeEditor(bool* p_open) {
+void Sequentity::drawThemeEditor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
     {
         if (ImGui::CollapsingHeader("Timeline")) {
@@ -233,7 +250,7 @@ void Sequencer::drawThemeEditor(bool* p_open) {
 }
 
 
-void Sequencer::draw(bool* p_open) {
+void Sequentity::draw(bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -247,7 +264,7 @@ void Sequencer::draw(bool* p_open) {
         float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
 
         /**
-         * @brief Sequencer divided into 4 panels
+         * @brief Sequentity divided into 4 panels
          *
          *          ___________________________
          *         |       |                   |
@@ -438,10 +455,27 @@ void Sequencer::draw(bool* p_open) {
             }
         };
 
+        /**
+         * @brief Visualise current time
+         *
+         *         __
+         *        |  |
+         *  _______\/___________________________________________________
+         *         |
+         *         |
+         *         |
+         *         |
+         *         |
+         *         |
+         *         |
+         *         |
+         *
+         *
+         */
         auto drawCurrentTime = [&]() {
             auto xMin = currentTime * zoom_ / stride_;
             auto xMax = 0.0f;
-            auto yMin = 0.0f;
+            auto yMin = TimelineTheme.height;
             auto yMax = windowSize.y;
 
             xMin += B.x + scroll[0];
@@ -449,8 +483,42 @@ void Sequencer::draw(bool* p_open) {
             yMin += B.y;
             yMax += B.y;
 
-            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMin, yMax), ImColor(EditorTheme.accent), 2.0f);
+            painter->AddLine(ImVec2{ xMin, yMin }, ImVec2{ xMin, yMax }, ImColor(EditorTheme.accent), 2.0f);
 
+            /**
+             *  Cursor
+             *    __
+             *   |  |
+             *    \/
+             *
+             */
+            auto width = 10.0f;
+            auto height = 20.0f;
+            auto topPos = ImVec2{ xMin, yMin };
+
+            ImVec2 points[5] = {
+                topPos,
+                topPos - ImVec2{ -width, height / 2.0f },
+                topPos - ImVec2{ -width, height },
+                topPos - ImVec2{ width, height },
+                topPos - ImVec2{ width, height / 2.0f }
+            };
+
+            ImVec2 shadow1[5];
+            ImVec2 shadow2[5];
+            for (int i=0; i < 5; i++) { shadow1[i] = points[i] + ImVec2{ 1.0f, 1.0f }; }
+            for (int i=0; i < 5; i++) { shadow2[i] = points[i] + ImVec2{ 3.0f, 3.0f }; }
+
+            painter->AddConvexPolyFilled(shadow1, 5, ImColor(GlobalTheme.shadow));
+            painter->AddConvexPolyFilled(shadow2, 5, ImColor(GlobalTheme.shadow));
+            painter->AddConvexPolyFilled(points, 5, ImColor(EditorTheme.accent));
+            painter->AddPolyline(points, 5, ImColor(EditorTheme.accentDark), true, 1.0f);
+            painter->AddLine(topPos - ImVec2{  2.0f, height * 0.3f },
+                             topPos - ImVec2{  2.0f, height * 0.8f },
+                             ImColor(EditorTheme.accentDark));
+            painter->AddLine(topPos - ImVec2{ -2.0f, height * 0.3f },
+                             topPos - ImVec2{ -2.0f, height * 0.8f },
+                             ImColor(EditorTheme.accentDark));
         };
 
         /**
@@ -501,13 +569,13 @@ void Sequencer::draw(bool* p_open) {
          *
          */
         auto drawEvents = [&]() {
-            Registry.view<Index, Name, Channel, Color>().each([&](const auto index,
-                                                                         const auto& name,
-                                                                         auto& events,
-                                                                         const auto& color) {
+            _registry.view<Index, Name, Channel, Color>().each([&](const auto index,
+                                                                  const auto& name,
+                                                                  auto& channel,
+                                                                  const auto& color) {
                 unsigned int count { 0 };
 
-                for (auto& event : events) {
+                for (auto& event : channel) {
                     static int initialTime { 0 };
                     int startTime = event.time;
                     int endTime = startTime + event.length;
@@ -540,7 +608,9 @@ void Sequencer::draw(bool* p_open) {
                         initialTime = startTime;
                     }
 
-                    if (ImGui::IsItemActive()) {
+                    // User Input
+                    // TODO: Move this out of the drawing code
+                    if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
                         float delta = ImGui::GetMouseDragDelta().x;
                         event.time = initialTime + static_cast<int>(delta / (zoom_ / stride_));
                     }
@@ -600,7 +670,7 @@ void Sequencer::draw(bool* p_open) {
         auto drawLister = [&]() {
             const ImVec2 size { ListerTheme.width, zoom[1] };
 
-            Registry.view<Name, Index, Channel>().each([&](auto entity, const auto& name, const auto& index, const auto&) {
+            _registry.view<Name, Index, Channel>().each([&](auto entity, const auto& name, const auto& index, const auto&) {
                 float xMin = 0.0f;
                 float xMax = ListerTheme.width;
                 float yMin = zoom[1] * index.relative;
@@ -628,9 +698,9 @@ void Sequencer::draw(bool* p_open) {
             drawHorizontalBar();
             drawVerticalGrid();
             drawEvents();
-            drawCurrentTime();
             drawTimelineBackground();
             drawTimeline();
+            drawCurrentTime();
         }
         painter->PopClipRect();
 
@@ -656,7 +726,10 @@ void Sequencer::draw(bool* p_open) {
         ImGui::InvisibleButton("##mscroll", ImVec2{ ListerTheme.width, TimelineTheme.height });
 
         if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        const bool scrollM = ImGui::IsItemActive();
+        const bool scrollM = (
+            ImGui::IsItemActive() ||
+            (ImGui::IsWindowFocused() && ImGui::GetIO().KeyAlt && ImGui::GetIO().MouseDown[0])
+        );
 
         /** Vertical Scroll
          *

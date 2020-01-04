@@ -23,8 +23,33 @@ static entt::registry Registry;
 #include "Math.inl"
 #include "Tools.inl"
 #include "Components.inl"
-#include "Sequencer.inl"
+#include "Sequentity.inl"
 #include "Widgets.inl"
+
+struct Active {};
+
+struct DragdollEventData {
+    Vector2i offset;
+    std::vector<Vector2i> positions;
+};
+
+struct BenddollEventData {
+    Deg offset;
+    std::vector<Deg> angles;
+};
+
+// Possible event types
+enum EventType : Sequentity::EventType {
+    DragdollEvent = 0,
+    BenddollEvent,
+};
+
+
+enum ToolType : std::uint8_t {
+    NoTool,
+    DragdollTool,
+    BendollTool
+};
 
 
 class Application : public Platform::Application {
@@ -56,11 +81,12 @@ public:
 
 private:
     ImGuiIntegration::Context _imgui{ NoCreate };
-    Sequencer::Sequencer _sequencer;
+    Sequentity::Sequentity _sequencer { Registry };
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
     bool _running { true };
+    ToolType _activeTool { DragdollTool };
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -106,14 +132,15 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     // Shouldn't be, but is, necessary
     ImGui::SetCurrentContext(_imgui.context());
 
+    // Required, else you can't interact with events in the editor
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
-    ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
-    
-    // Optional
-    Theme();
 
+    // Optional
+    ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;    // Enable Docking
     ImGui::GetIO().ConfigDockingWithShift = true;
+
+    Theme();
 
     /* Set up proper blending to be used by ImGui. There's a great chance
        you'll need this exact behavior for the rest of your scene. If not, set
@@ -138,35 +165,35 @@ void Application::setup() {
     auto gray = Registry.create();
 
     Registry.assign<Name>(red, "Red Rigid");
-    Registry.assign<Index>(red, 0, 0);
+    Registry.assign<Index>(red, 0);
     Registry.assign<Size>(red, Vector2i{ 100, 100 });
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
     Registry.assign<Position>(red, Vector2i{ 300, 50 });
     Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 });
 
     Registry.assign<Name>(green, "Green Rigid");
-    Registry.assign<Index>(green, 1, 0);
+    Registry.assign<Index>(green, 1);
     Registry.assign<Size>(green, Vector2i{ 100, 100 });
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
     Registry.assign<Position>(green, Vector2i{ 500, 50 });
     Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 });
 
     Registry.assign<Name>(blue, "Blue Rigid");
-    Registry.assign<Index>(blue, 2, 0);
+    Registry.assign<Index>(blue, 2);
     Registry.assign<Size>(blue, Vector2i{ 100, 100 });
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
     Registry.assign<Position>(blue, Vector2i{ 700, 50 });
     Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 });
 
     Registry.assign<Name>(purple, "Purple Rigid");
-    Registry.assign<Index>(purple, 3, 0);
+    Registry.assign<Index>(purple, 3);
     Registry.assign<Size>(purple, Vector2i{ 80, 100 });
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f), ImColor::HSV(0.45f, 0.75f, 0.1f));
     Registry.assign<Position>(purple, Vector2i{ 350, 200 });
     Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 });
 
     Registry.assign<Name>(gray, "Gray Rigid");
-    Registry.assign<Index>(gray, 4, 0);
+    Registry.assign<Index>(gray, 4);
     Registry.assign<Size>(gray, Vector2i{ 80, 40 });
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f), ImColor::HSV(0.55f, 0.0f, 0.1f));
     Registry.assign<Position>(gray, Vector2i{ 550, 200 });
@@ -185,7 +212,10 @@ void Application::update() {
     }
 
     else {
-        Registry.view<Position, Sequencer::Channel, Color>().each([&](auto entity, auto& position, const auto& channel, const auto& color) {
+        Registry.view<Position, Sequentity::Channel, Color>().each([&](auto entity,
+                                                                       auto& position,
+                                                                       const auto& channel,
+                                                                       const auto& color) {
             /**  Find intersecting event, backwards
              *
              *               time
@@ -197,17 +227,22 @@ void Application::update() {
              *                 
              */
 
-            const Sequencer::Event* current = _sequencer.overlapping(channel);
+            const Sequentity::Event* current = _sequencer.overlapping(channel);
 
             // Inbetween channel, that's ok
             if (current == nullptr) return;
+            if (current->data == nullptr) {
+                Warning() << "This is a bug";
+                return;
+            }
 
-            const int index = currentTime - current->time;
-            const auto value = current->data[index] - current->offset;
-            position = value;
+            if (current->type == DragdollEvent) {
+                auto& data = *static_cast<DragdollEventData*>(current->data);
+                const int index = currentTime - current->time;
+                const auto value = data.positions[index] - data.offset;
+                position = value;
+            }
         });
-
-        Registry.reset<StartPosition>();
     }
 }
 
@@ -220,7 +255,7 @@ void Application::clear() {
         position = initial;
     });
 
-    Registry.reset<Sequencer::Channel>();
+    Registry.reset<Sequentity::Channel>();
 }
 
 
@@ -345,7 +380,7 @@ void Application::drawRigids() {
                                                        const auto& name,
                                                        const auto& position,
                                                        const auto& size) {
-            static Sequencer::Event* current { nullptr };
+            static Sequentity::Event* current { nullptr };
 
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
@@ -354,26 +389,33 @@ void Application::drawRigids() {
 
             ImGui::SetCursorPos(impos);
             auto state = SmartButton(name.text, imsize);
-            auto time = _sequencer.currentTime + 1;
+            auto time = _sequencer.currentTime + (_sequencer.playing ? 1 : 0);
 
             if (state & SmartButtonState_Pressed) {
-                Debug() << "Pressed @" << mousePosition;
+                Registry.reset<Active>();
+                Registry.assign_or_replace<Active>(entity);
 
-                Sequencer::Event event;
+                const bool is_first_event = !Registry.has<Sequentity::Channel>(entity);
 
-                event.time = time;
-                event.length = 1;
-                event.offset = mousePosition - position;
-                event.pressPosition = position;
-                event.releasePosition = position;
-                event.data.push_back(mousePosition);
+                auto* data = new DragdollEventData{}; {
+                    data->offset = mousePosition - position;
+                    data->positions.push_back(mousePosition);
+                }
 
-                const bool shouldSort = !Registry.has<Sequencer::Channel>(entity);
-                auto& channel = Registry.get_or_assign<Sequencer::Channel>(entity);
+                Sequentity::Event event; {
+                    event.time = time;
+                    event.length = 1;
+
+                    // Store reference to our data
+                    event.type = DragdollEvent;
+                    event.data = static_cast<void*>(data);
+                }
+
+                // Write Sequentity data..
+                auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
                 channel.push_back(event);
-                current = &channel.back();
 
-                if (shouldSort) {
+                if (is_first_event) {
                     Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
                         return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
                     });
@@ -382,12 +424,15 @@ void Application::drawRigids() {
                     // TODO: Is this really the most efficient way to do this?
                     int previous { 0 };
                     Registry.view<Index>().each([&](auto entity, auto& index) {
-                        if (Registry.has<Sequencer::Channel>(entity)) {
+                        if (Registry.has<Sequentity::Channel>(entity)) {
                             index.relative = previous;
                             previous++;
                         }
                     });
                 }
+
+                // Maintain reference for subsequent drag
+                current = &channel.back();
             }
 
             else if (state & SmartButtonState_Dragged) {
@@ -396,8 +441,8 @@ void Application::drawRigids() {
                 }
 
                 if (current != nullptr) {
-                    current->data.push_back(mousePosition);
-                    current->releasePosition = position;
+                    auto& data = *static_cast<DragdollEventData*>(current->data);
+                    data.positions.push_back(mousePosition);
                     current->length += 1;
                 }
             }
@@ -408,13 +453,12 @@ void Application::drawRigids() {
 
         });
 
-        Registry.view<Position, Sequencer::Channel, Color>().each([&](const auto& position,
-                                                          const auto& channel,
-                                                          const auto& color) {
+        Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
+                                                                       const auto& channel,
+                                                                       const auto& color) {
             if (auto ovl = _sequencer.overlapping(channel)) {
-                auto impos = ImVec2((float)position.x(), (float)position.y());
-                impos.x += ovl->offset.x();
-                impos.y += ovl->offset.y();
+                auto& data = *static_cast<DragdollEventData*>(ovl->data);
+                auto impos = ImVec2(Vector2(position + data.offset));
                 drawCursor(impos, color.fill);
             }
         });
@@ -428,14 +472,17 @@ void Application::drawEvent() {
 
     _imgui.newFrame();
 
-    if (ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
-    else if (!ImGui::GetIO().WantTextInput && isTextInputActive()) stopTextInput();
+         if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
+    else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
     drawCentralWidget();
     drawTransport();
     drawRigids();
 
+    Timer updateTimer;
     _sequencer.update();
+
+    Timer drawTimer;
     _sequencer.draw(&_showSequencer);
 
     if (_showMetrics) {
