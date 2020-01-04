@@ -26,7 +26,9 @@ static entt::registry Registry;
 #include "Sequentity.inl"
 #include "Widgets.inl"
 
-struct Active {};
+struct Activated { int time; };
+struct Active { int time; };
+struct Deactivated { int time; };
 
 struct DragdollEventData {
     Vector2i offset;
@@ -45,10 +47,24 @@ enum EventType : Sequentity::EventType {
 };
 
 
-enum ToolType : std::uint8_t {
-    NoTool,
-    DragdollTool,
-    BendollTool
+enum class ToolType : std::uint8_t {
+    Select,
+    DragSelect,
+    LassoSelect,
+
+    Dragdoll,
+    Bendoll
+};
+
+struct Input1DRange  { int x; };
+struct Input2DRange : Vector2i { using Vector2i::Vector2i; };
+struct Input3DRange : Vector3i { using Vector3i::Vector3i ;};
+
+
+struct DragdollTool {
+    bool activated { false };
+    bool active { false };
+    bool deactivated { false };
 };
 
 
@@ -86,7 +102,7 @@ private:
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
     bool _running { true };
-    ToolType _activeTool { DragdollTool };
+    ToolType _activeTool { ToolType::Dragdoll };
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -216,32 +232,16 @@ void Application::update() {
                                                                        auto& position,
                                                                        const auto& channel,
                                                                        const auto& color) {
-            /**  Find intersecting event, backwards
-             *
-             *               time
-             *                 |
-             *    _____________|__________
-             *   |_____________|__________|
-             *   ^             |
-             * event           |
-             *                 
-             */
+            _sequencer.each_overlapping(channel, [&](auto& event) {
+                if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
-            const Sequentity::Event* current = _sequencer.overlapping(channel);
-
-            // Inbetween channel, that's ok
-            if (current == nullptr) return;
-            if (current->data == nullptr) {
-                Warning() << "This is a bug";
-                return;
-            }
-
-            if (current->type == DragdollEvent) {
-                auto& data = *static_cast<DragdollEventData*>(current->data);
-                const int index = currentTime - current->time;
-                const auto value = data.positions[index] - data.offset;
-                position = value;
-            }
+                if (event.type == DragdollEvent) {
+                    auto data = static_cast<DragdollEventData*>(event.data);
+                    const int index = currentTime - event.time;
+                    const auto value = data->positions[index] - data->offset;
+                    position = value;
+                }
+            });
         });
     }
 }
@@ -380,8 +380,6 @@ void Application::drawRigids() {
                                                        const auto& name,
                                                        const auto& position,
                                                        const auto& size) {
-            static Sequentity::Event* current { nullptr };
-
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
 
@@ -392,78 +390,98 @@ void Application::drawRigids() {
             auto time = _sequencer.currentTime + (_sequencer.playing ? 1 : 0);
 
             if (state & SmartButtonState_Pressed) {
-                Registry.reset<Active>();
-                Registry.assign_or_replace<Active>(entity);
-
-                const bool is_first_event = !Registry.has<Sequentity::Channel>(entity);
-
-                auto* data = new DragdollEventData{}; {
-                    data->offset = mousePosition - position;
-                    data->positions.push_back(mousePosition);
-                }
-
-                Sequentity::Event event; {
-                    event.time = time;
-                    event.length = 1;
-
-                    // Store reference to our data
-                    event.type = DragdollEvent;
-                    event.data = static_cast<void*>(data);
-                }
-
-                // Write Sequentity data..
-                auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
-                channel.push_back(event);
-
-                if (is_first_event) {
-                    Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
-                        return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
-                    });
-
-                    // Update the relative positions of each event
-                    // TODO: Is this really the most efficient way to do this?
-                    int previous { 0 };
-                    Registry.view<Index>().each([&](auto entity, auto& index) {
-                        if (Registry.has<Sequentity::Channel>(entity)) {
-                            index.relative = previous;
-                            previous++;
-                        }
-                    });
-                }
-
-                // Maintain reference for subsequent drag
-                current = &channel.back();
+                Registry.assign<Activated>(entity, _sequencer.currentTime);
+                Registry.assign<Input2DRange>(entity, mousePosition);
             }
 
             else if (state & SmartButtonState_Dragged) {
-                if (current != nullptr && current->time + current->length > time) {
-                    current = nullptr;
-                }
+                Registry.assign<Active>(entity);
+                Registry.replace<Input2DRange>(entity, mousePosition);
 
-                if (current != nullptr) {
-                    auto& data = *static_cast<DragdollEventData*>(current->data);
-                    data.positions.push_back(mousePosition);
-                    current->length += 1;
-                }
             }
 
             else if (state & SmartButtonState_Released) {
-                current = nullptr;
+                Registry.assign<Deactivated>(entity);
+                Registry.reset<Input2DRange>();
             }
-
         });
 
         Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
                                                                        const auto& channel,
                                                                        const auto& color) {
-            if (auto ovl = _sequencer.overlapping(channel)) {
-                auto& data = *static_cast<DragdollEventData*>(ovl->data);
+            if (auto event = _sequencer.overlapping(channel)) {
+                auto& data = *static_cast<DragdollEventData*>(event->data);
                 auto impos = ImVec2(Vector2(position + data.offset));
                 drawCursor(impos, color.fill);
             }
         });
     }
     ImGui::End();
+}
+
+
+static void InputSystem() {
+
+    // Handle press input of type: 2D range, relative anything with a position
+    Registry.view<Activated, Input2DRange, Position>().each([](auto entity,
+                                                               const auto& activated,
+                                                               const auto& input,
+                                                               const auto& position
+                                                               ) {
+        const bool is_first_event = !Registry.has<Sequentity::Channel>(entity);
+
+        auto* data = new DragdollEventData{}; {
+            data->offset = input - position;
+            data->positions.push_back(input);
+        }
+
+        Sequentity::Event event; {
+            event.time = activated.time + 1;
+            event.length = 1;
+
+            // Store reference to our data
+            event.type = DragdollEvent;
+            event.data = static_cast<void*>(data);
+        }
+
+        // Write Sequentity data..
+        auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
+        channel.push_back(event);
+
+        // Update the relative positions of each event
+        // TODO: Is this really the most efficient way to do this?
+        if (is_first_event) {
+            Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
+                return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
+            });
+
+            int previous { 0 };
+            Registry.view<Index>().each([&](auto entity, auto& index) {
+                if (Registry.has<Sequentity::Channel>(entity)) {
+                    index.relative = previous;
+                    previous++;
+                }
+            });
+        }
+    });
+
+    Registry.view<Name, Active, Input2DRange, Sequentity::Channel>().each([](const auto& name,
+                                                                             const auto&,
+                                                                             const auto& input,
+                                                                             auto& channel
+                                                                             ) {
+        auto& event = channel.back();
+        auto data = static_cast<DragdollEventData*>(event.data);
+        data->positions.push_back(input);
+        event.length += 1;
+    });
+
+    Registry.view<Deactivated>().each([](auto entity, const auto&) {});
+
+    // Restore order to this world
+    Registry.reset<Active>();
+    Registry.reset<Activated>();
+    Registry.reset<Deactivated>();
 }
 
 
@@ -478,6 +496,9 @@ void Application::drawEvent() {
     drawCentralWidget();
     drawTransport();
     drawRigids();
+
+    // Handle any input coming from the above drawRigids()
+    InputSystem();
 
     Timer updateTimer;
     _sequencer.update();

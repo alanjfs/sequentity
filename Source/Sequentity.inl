@@ -61,6 +61,8 @@ struct Event {
 using Channel = std::vector<Event>;
 
 
+using OverlappingCallback = std::function<void(const Event&)>;
+
 /**
  * @brief Main window
  *
@@ -81,8 +83,18 @@ struct Sequentity {
     void step(int time);
     void stop();
 
+    /**  Find intersecting events
+     *
+     *               time
+     *                 |
+     *    _____________|__________
+     *   |_____________|__________|
+     *   ^             |
+     * event           |
+     *                 
+     */
     const Event* overlapping(const Channel& channel);
-    void each_overlapping(const Channel& channel, std::function<void(const Event*)>);
+    void each_overlapping(const Channel& channel, OverlappingCallback func);
 
     // State
     bool playing { false };
@@ -212,11 +224,18 @@ void Sequentity::update() {
 }
 
 
+bool contains(const Event& event, int time) {
+    return (
+        event.time <= time &&
+        event.time + event.length > time
+    );
+}
+
 const Event* Sequentity::overlapping(const Channel& channel) {
     const Event* intersecting { nullptr };
 
     for (auto& event : channel) {
-        if (event.time <= currentTime && event.time + event.length > currentTime) {
+        if (contains(event, currentTime)) {
             intersecting = &event;
 
             // Ignore overlapping
@@ -226,6 +245,14 @@ const Event* Sequentity::overlapping(const Channel& channel) {
     }
     return intersecting;
 }
+
+
+void Sequentity::each_overlapping(const Channel& channel, OverlappingCallback func) {
+    for (auto& event : channel) {
+        if (contains(event, currentTime)) func(event);
+    }
+}
+
 
 void Sequentity::drawThemeEditor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
