@@ -88,16 +88,19 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
         (mode->height / 2) - (windowSize().y() / 2)
     );
 
-    _imgui = ImGuiIntegration::Context(Vector2{windowSize()}/dpiScaling(),
-        windowSize(), framebufferSize());
+    _imgui = ImGuiIntegration::Context(
+        Vector2{ windowSize() } / dpiScaling(),
+        windowSize(), framebufferSize()
+    );
 
-    // ImGui::GetIO().Fonts->Clear();
-    // ImGui::GetIO().Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * dpiScaling().x());
+    ImGui::GetIO().Fonts->Clear();
+    ImGui::GetIO().Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * dpiScaling().x());
 
-    // _imgui.relayout(
-    //     Vector2{ windowSize() } / dpiScaling(),
-    //     windowSize(), framebufferSize()
-    // );
+    // Refresh fonts
+    _imgui.relayout(
+        Vector2{ windowSize() } / dpiScaling(),
+        windowSize(), framebufferSize()
+    );
 
     // Required, else you can't interact with events in the editor
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
@@ -471,9 +474,9 @@ void Application::drawEvent() {
     drawTransport();
     drawRigids();
 
-    // if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
-    //     _pollMouse();
-    // }
+    if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
+        _pollMouse();
+    }
 
     // Handle any input coming from the above drawRigids()
     _activeTool.system();

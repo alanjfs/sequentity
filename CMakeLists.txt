@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 
-project(Sequenser CXX)
+project(Sequentity CXX)
 
 get_filename_component(PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 
@@ -52,7 +52,7 @@ add_executable(${PROJECT_NAME}
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    OUTPUT_NAME "Sequenser"
+    OUTPUT_NAME "Sequentity"
     VERSION "0.1"
 )
 
