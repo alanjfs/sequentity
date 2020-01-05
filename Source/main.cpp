@@ -42,6 +42,7 @@ public:
     void setup();
     void update();
     void clear();
+    void reset();
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -133,7 +134,6 @@ void Application::setup() {
     auto global = Registry.create();
     Registry.assign<Name>(global, "Global");
     Registry.assign<Index>(global, 0);
-
     Registry.set<entt::entity>(global);
 
     auto red = Registry.create();
@@ -142,40 +142,45 @@ void Application::setup() {
     auto purple = Registry.create();
     auto gray = Registry.create();
 
-    Registry.assign<Name>(red, "Red Rigid");
+    Registry.assign<Name>(red, "Red Rectangle");
     Registry.assign<Index>(red, 1);
     Registry.assign<Size>(red, Vector2i{ 100, 100 });
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
-    Registry.assign<Position>(red, Vector2i{ 300, 50 });
-    Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 });
+    Registry.assign<Orientation>(red, 0.0_degf);
+    Registry.assign<Position>(red, Vector2i{ 300, 50 + 50 });
+    Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 + 50 });
 
-    Registry.assign<Name>(green, "Green Rigid");
+    Registry.assign<Name>(green, "Green Rectangle");
     Registry.assign<Index>(green, 2);
     Registry.assign<Size>(green, Vector2i{ 100, 100 });
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
-    Registry.assign<Position>(green, Vector2i{ 500, 50 });
-    Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 });
+    Registry.assign<Orientation>(green, 0.0_degf);
+    Registry.assign<Position>(green, Vector2i{ 500, 50 + 50 });
+    Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 + 50 });
 
-    Registry.assign<Name>(blue, "Blue Rigid");
+    Registry.assign<Name>(blue, "Blue Rectangle");
     Registry.assign<Index>(blue, 3);
     Registry.assign<Size>(blue, Vector2i{ 100, 100 });
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
-    Registry.assign<Position>(blue, Vector2i{ 700, 50 });
-    Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 });
+    Registry.assign<Orientation>(blue, 0.0_degf);
+    Registry.assign<Position>(blue, Vector2i{ 700, 50 + 50 });
+    Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 + 50 });
 
-    Registry.assign<Name>(purple, "Purple Rigid");
+    Registry.assign<Name>(purple, "Purple Rectangle");
     Registry.assign<Index>(purple, 4);
     Registry.assign<Size>(purple, Vector2i{ 80, 100 });
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f), ImColor::HSV(0.45f, 0.75f, 0.1f));
-    Registry.assign<Position>(purple, Vector2i{ 350, 200 });
-    Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 });
+    Registry.assign<Orientation>(purple, 0.0_degf);
+    Registry.assign<Position>(purple, Vector2i{ 350, 200 + 50 });
+    Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 + 50 });
 
-    Registry.assign<Name>(gray, "Gray Rigid");
+    Registry.assign<Name>(gray, "Gray Rectangle");
     Registry.assign<Index>(gray, 5);
     Registry.assign<Size>(gray, Vector2i{ 80, 40 });
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f), ImColor::HSV(0.55f, 0.0f, 0.1f));
-    Registry.assign<Position>(gray, Vector2i{ 550, 200 });
-    Registry.assign<InitialPosition>(gray, Vector2i{ 550, 200 });
+    Registry.assign<Orientation>(gray, 0.0_degf);
+    Registry.assign<Position>(gray, Vector2i{ 550, 200 + 50 });
+    Registry.assign<InitialPosition>(gray, Vector2i{ 550, 200 + 50 });
 }
 
 
@@ -184,24 +189,33 @@ void Application::update() {
     auto currentTime = _sequencer.currentTime;
 
     if (currentTime <= startTime) {
-        Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
-            position = initial;
-        });
+        reset();
     }
 
     else {
-        Registry.view<Position, Sequentity::Channel, Color>().each([&](auto entity,
-                                                                       auto& position,
-                                                                       const auto& channel,
-                                                                       const auto& color) {
+        Registry.view<Sequentity::Channel, Color>().each([&](auto entity, 
+                                                             const auto& channel,
+                                                             const auto& color) {
             _sequencer.each_overlapping(channel, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
+                    // Guaranteed to exist, given that the event only applies to entitiy that carry it
+                    auto& position = Registry.get<Position>(entity);
+
                     auto data = static_cast<TranslateEventData*>(event.data);
                     const int index = currentTime - event.time;
                     const auto value = data->positions[index] - data->offset;
                     position = value;
+                }
+
+                if (event.type == RotateEvent) {
+                    // Guaranteed to exist, given that the event only applies to entitiy that carry it
+                    auto& orientation = Registry.get<Orientation>(entity);
+                    auto data = static_cast<RotateEventData*>(event.data);
+                    const int index = currentTime - event.time;
+                    const auto value = data->orientations[index];
+                    orientation = value;
                 }
             });
         });
@@ -212,12 +226,24 @@ void Application::update() {
 auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
-void Application::clear() {
+void Application::reset() {
     Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
         position = initial;
     });
 
+    Registry.view<Orientation>().each([&](auto& orientation) {
+        orientation = 0.0f;
+    });
+
+    Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
+        position = initial;
+    });
+
+}
+
+void Application::clear() {
     Registry.reset<Sequentity::Channel>();
+    reset();
 }
 
 
@@ -376,19 +402,23 @@ void Application::drawRigids() {
 
         Button("Scrub", _activeTool.type == ToolType::Scrub);
 
-        auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
+        // auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
+        auto relativePosition = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
         auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
 
         bool anyActive { false };
-        Registry.view<Name, Position, Size>().each([&](auto entity,
-                                                       const auto& name,
-                                                       const auto& position,
-                                                       const auto& size) {
+        Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
+                                                                           const auto& name,
+                                                                           const auto& position,
+                                                                           const auto& orientation,
+                                                                           const auto& color,
+                                                                           const auto& size) {
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
+            auto imangle = static_cast<float>(orientation);
+            auto imcolor = ImColor(color.fill);
 
-            ImGui::SetCursorPos(impos);
-            auto state = SmartButton(name.text, imsize);
+            auto state = SmartButton(name.text, impos, imsize, imangle, imcolor);
             auto time = _sequencer.currentTime + (_sequencer.playing ? 1 : 0);
 
             if (state & SmartButtonState_Pressed) {
@@ -409,23 +439,23 @@ void Application::drawRigids() {
             }
         });
 
-        if (!anyActive) {
-            auto global = Registry.ctx<entt::entity>();
+        // if (!anyActive) {
+        //     auto global = Registry.ctx<entt::entity>();
 
-            if (ImGui::IsMouseClicked(0)) {
-                Registry.assign<Activated>(global, _sequencer.currentTime);
-                Registry.assign<Input2DRange>(global, absolutePosition, relativePosition);
-            }
+        //     if (ImGui::IsMouseClicked(0)) {
+        //         Registry.assign<Activated>(global, _sequencer.currentTime);
+        //         Registry.assign<Input2DRange>(global, absolutePosition, relativePosition);
+        //     }
 
-            else if (ImGui::IsMouseDragging(0)) {
-                Registry.assign<Active>(global);
-                Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
-            }
+        //     else if (ImGui::IsMouseDragging(0)) {
+        //         Registry.assign<Active>(global);
+        //         Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
+        //     }
 
-            else if (ImGui::IsMouseReleased(0)) {
-                Registry.assign<Deactivated>(global);
-            }
-        }
+        //     else if (ImGui::IsMouseReleased(0)) {
+        //         Registry.assign<Deactivated>(global);
+        //     }
+        // }
 
         Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
                                                                        const auto& channel,
@@ -474,9 +504,9 @@ void Application::drawEvent() {
     drawTransport();
     drawRigids();
 
-    if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
-        _pollMouse();
-    }
+    // if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
+    //     _pollMouse();
+    // }
 
     // Handle any input coming from the above drawRigids()
     _activeTool.system();

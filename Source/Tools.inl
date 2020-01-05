@@ -39,8 +39,8 @@ struct TranslateEventData {
 
 
 struct RotateEventData {
-    Deg offset;
-    std::vector<Deg> angles;
+    float offset;
+    std::vector<float> orientations;
 };
 
 struct ScaleEventData {
@@ -117,7 +117,49 @@ static void TranslateTool() {
 }
 
 
-static void RotateTool() {}
+static void RotateTool() {
+    Registry.view<Activated, Input2DRange, Color, Orientation>().each([](auto entity,
+                                                                         const auto& activated,
+                                                                         const auto& input,
+                                                                         const auto& color,
+                                                                         const auto& orientation) {
+        auto* data = new RotateEventData{}; {
+            data->offset = orientation;
+            data->orientations.push_back(orientation);
+        }
+
+        Sequentity::Event event; {
+            event.time = activated.time + 1;
+            event.length = 1;
+            event.color = { color.stroke, color.fill };
+
+            // Store reference to our data
+            event.type = RotateEvent;
+            event.data = static_cast<void*>(data);
+        }
+
+        // Write Sequentity data..
+        auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
+        channel.push_back(event);
+    });
+
+    Registry.view<Name, Active, Input2DRange, Sequentity::Channel>().each([](const auto& name,
+                                                                             const auto&,
+                                                                             const auto& input,
+                                                                             auto& channel) {
+        auto& event = channel.back();
+
+        if (event.type != RotateEvent) return;
+
+        auto data = static_cast<RotateEventData*>(event.data);
+        data->orientations.push_back(static_cast<float>(data->offset + input.relative.x()));
+        event.length += 1;
+    });
+
+    Registry.view<Deactivated>().each([](auto entity, const auto&) {});
+}
+
+
 static void ScaleTool() {}
 
 
@@ -125,7 +167,7 @@ static void ScrubTool() {
 
     // Press
     Registry.view<Activated, Input2DRange>(entt::exclude<Position>).each([](const auto& activated,
-                                                     const auto& input) {
+                                                                            const auto& input) {
         auto* data = new ScrubEventData{};
 
         Sequentity::Event event; {
