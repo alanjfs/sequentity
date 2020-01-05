@@ -46,8 +46,27 @@ enum EventType_ : std::uint8_t {
  *
  */
 struct Event {
-    int time;
-    int length;
+    int time { 0 };
+    int length { 0 };
+
+    /**
+     * @brief Ignore start and end of event
+     *
+     * E.g. crop = { 2, 4 };
+     *       ______________________________________
+     *      |//|                              |////|
+     *      |//|______________________________|////|
+     *      |  |                              |    |
+     *      |--|                              |----|
+     *  2 cropped from start             4 cropped from end
+     *
+     */
+    int crop[2] { 0, 0 };
+
+    struct Color {
+        ImVec4 stroke { ImColor::HSV(0.0f, 0.0f, 1.0f) };
+        ImVec4 fill { ImColor::HSV(0.0f, 0.0f, 0.5f) };
+    } color;
 
     // Map your custom data here, along with an optional type
     void* data { nullptr };
@@ -113,6 +132,7 @@ struct Sequentity {
     bool splitEndEvent { false };
 
 public:
+    // Callbacks
     void before_stepped(std::function<void(int time)> func) { _before_stepped = func; }
     void after_stepped(std::function<void(int time)> func) { _after_stepped = func; }
 
@@ -596,10 +616,9 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawEvents = [&]() {
-            _registry.view<Index, Name, Channel, Color>().each([&](const auto index,
-                                                                  const auto& name,
-                                                                  auto& channel,
-                                                                  const auto& color) {
+            _registry.view<Index, Name, Channel>().each([&](const auto index,
+                                                            const auto& name,
+                                                            auto& channel) {
                 unsigned int count { 0 };
 
                 for (auto& event : channel) {
@@ -619,16 +638,19 @@ void Sequentity::draw(bool* p_open) {
 
                     ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
 
-                    const char* label = (std::string("##event") + name.text + std::to_string(count)).c_str();
+                    std::string label { "##event" };
+                    label += name.text;
+                    label += std::to_string(count);
+
                     ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), zoom[1]};
-                    ImGui::InvisibleButton(label, size);
+                    ImGui::InvisibleButton(label.c_str(), size);
 
                     float thickness = 0.0f;
-                    ImVec4 currentFill = color.fill;
+                    ImVec4 currentFill = event.color.fill;
 
                     if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
                         thickness = 3.0f;
-                        currentFill = color.fill * 1.1f;
+                        currentFill = event.color.fill * 1.1f;
                     }
 
                     if (ImGui::IsItemActivated()) {
@@ -662,7 +684,7 @@ void Sequentity::draw(bool* p_open) {
                         painter->AddRect(
                             { xMin + thickness, yMin + thickness },
                             { xMax - thickness, yMax - thickness - 1 },
-                            ImColor(color.stroke), EditorTheme.radius
+                            ImColor(event.color.stroke), EditorTheme.radius
                         );
                     }
 

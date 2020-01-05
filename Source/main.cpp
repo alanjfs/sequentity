@@ -19,53 +19,13 @@ using namespace Math::Literals;
 
 static entt::registry Registry;
 
+#include "Utils.hpp"
 #include "Theme.inl"
 #include "Math.inl"
-#include "Tools.inl"
 #include "Components.inl"
 #include "Sequentity.inl"
+#include "Tools.inl"
 #include "Widgets.inl"
-
-struct Activated { int time; };
-struct Active { int time; };
-struct Deactivated { int time; };
-
-struct DragdollEventData {
-    Vector2i offset;
-    std::vector<Vector2i> positions;
-};
-
-struct BenddollEventData {
-    Deg offset;
-    std::vector<Deg> angles;
-};
-
-// Possible event types
-enum EventType : Sequentity::EventType {
-    DragdollEvent = 0,
-    BenddollEvent,
-};
-
-
-enum class ToolType : std::uint8_t {
-    Select,
-    DragSelect,
-    LassoSelect,
-
-    Dragdoll,
-    Bendoll
-};
-
-struct Input1DRange  { int x; };
-struct Input2DRange : Vector2i { using Vector2i::Vector2i; };
-struct Input3DRange : Vector3i { using Vector3i::Vector3i ;};
-
-
-struct DragdollTool {
-    bool activated { false };
-    bool active { false };
-    bool deactivated { false };
-};
 
 
 class Application : public Platform::Application {
@@ -96,13 +56,23 @@ public:
     void textInputEvent(TextInputEvent& event) override;
 
 private:
+    void _pollMouse();
+
     ImGuiIntegration::Context _imgui{ NoCreate };
     Sequentity::Sequentity _sequencer { Registry };
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
     bool _running { true };
-    ToolType _activeTool { ToolType::Dragdoll };
+
+    bool _mouseDragging { false };
+    struct _ {
+        Vector2i absolute;
+        Vector2i relative;
+    } _mouseDragPosition;
+
+    Tool _activeTool { ToolType::Select, SelectTool };
+    Tool _previousTool { ToolType::Select, SelectTool };
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -124,29 +94,16 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
         (mode->height / 2) - (windowSize().y() / 2)
     );
 
-    this->setSwapInterval(1);  // VSync
+    _imgui = ImGuiIntegration::Context(Vector2{windowSize()}/dpiScaling(),
+        windowSize(), framebufferSize());
 
-    // IMPORTANT: In order to add a new font, we need to
-    // first create an ImGui context. But, it has to happen
-    // **before** creating the ImGuiIntegration::Context.
-    ImGui::CreateContext();
+    // ImGui::GetIO().Fonts->Clear();
+    // ImGui::GetIO().Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * dpiScaling().x());
 
-    auto& io = ImGui::GetIO();
-    io.Fonts->AddFontFromFileTTF("OpenSans-Regular.ttf", 16.0f * dpiScaling().x());
-
-    _imgui = ImGuiIntegration::Context(
-
-        // Note, in order for the newly added font to remain, we'll need to
-        // pass the current context we just created back into the integration.
-        // Your code would run without this, but would also throw your font away.
-        *ImGui::GetCurrentContext(),
-
-        Vector2{ windowSize() } / dpiScaling(),
-        windowSize(), framebufferSize()
-    );
-
-    // Shouldn't be, but is, necessary
-    ImGui::SetCurrentContext(_imgui.context());
+    // _imgui.relayout(
+    //     Vector2{ windowSize() } / dpiScaling(),
+    //     windowSize(), framebufferSize()
+    // );
 
     // Required, else you can't interact with events in the editor
     ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = true;
@@ -166,6 +123,8 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
         GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
+    this->setSwapInterval(1);  // VSync
+
     setup();
 
     _sequencer.after_stepped([this](int time) { update(); });
@@ -174,6 +133,12 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
 
 void Application::setup() {
+    auto global = Registry.create();
+    Registry.assign<Name>(global, "Global");
+    Registry.assign<Index>(global, 0);
+
+    Registry.set<entt::entity>(global);
+
     auto red = Registry.create();
     auto green = Registry.create();
     auto blue = Registry.create();
@@ -181,35 +146,35 @@ void Application::setup() {
     auto gray = Registry.create();
 
     Registry.assign<Name>(red, "Red Rigid");
-    Registry.assign<Index>(red, 0);
+    Registry.assign<Index>(red, 1);
     Registry.assign<Size>(red, Vector2i{ 100, 100 });
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
     Registry.assign<Position>(red, Vector2i{ 300, 50 });
     Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 });
 
     Registry.assign<Name>(green, "Green Rigid");
-    Registry.assign<Index>(green, 1);
+    Registry.assign<Index>(green, 2);
     Registry.assign<Size>(green, Vector2i{ 100, 100 });
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
     Registry.assign<Position>(green, Vector2i{ 500, 50 });
     Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 });
 
     Registry.assign<Name>(blue, "Blue Rigid");
-    Registry.assign<Index>(blue, 2);
+    Registry.assign<Index>(blue, 3);
     Registry.assign<Size>(blue, Vector2i{ 100, 100 });
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
     Registry.assign<Position>(blue, Vector2i{ 700, 50 });
     Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 });
 
     Registry.assign<Name>(purple, "Purple Rigid");
-    Registry.assign<Index>(purple, 3);
+    Registry.assign<Index>(purple, 4);
     Registry.assign<Size>(purple, Vector2i{ 80, 100 });
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f), ImColor::HSV(0.45f, 0.75f, 0.1f));
     Registry.assign<Position>(purple, Vector2i{ 350, 200 });
     Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 });
 
     Registry.assign<Name>(gray, "Gray Rigid");
-    Registry.assign<Index>(gray, 4);
+    Registry.assign<Index>(gray, 5);
     Registry.assign<Size>(gray, Vector2i{ 80, 40 });
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f), ImColor::HSV(0.55f, 0.0f, 0.1f));
     Registry.assign<Position>(gray, Vector2i{ 550, 200 });
@@ -235,8 +200,8 @@ void Application::update() {
             _sequencer.each_overlapping(channel, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
-                if (event.type == DragdollEvent) {
-                    auto data = static_cast<DragdollEventData*>(event.data);
+                if (event.type == TranslateEvent) {
+                    auto data = static_cast<TranslateEventData*>(event.data);
                     const int index = currentTime - event.time;
                     const auto value = data->positions[index] - data->offset;
                     position = value;
@@ -361,7 +326,7 @@ void Application::drawRigids() {
     ImVec2 size = ImGui::GetWindowSize();
     Vector2i shapeSize { 100, 100 };
 
-    auto drawCursor = [&](ImVec2 corner, ImColor color) {
+    auto Cursor = [&](ImVec2 corner, ImColor color) {
         auto root = ImGui::GetWindowPos();
         auto painter = ImGui::GetWindowDrawList();
 
@@ -374,8 +339,50 @@ void Application::drawRigids() {
         );
     };
 
+    auto Button = [&](const char* label, bool checked, float width = 100.0f) -> bool {
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 10.0f, 20.0f });
+
+        if (checked) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.25f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.15f));
+        }
+        else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 0.1f));
+        }
+
+        const bool pressed = ImGui::Button(label, {width, 0});
+
+        if (checked) ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+
+        return pressed;
+    };
+
     ImGui::Begin("3D Viewport", nullptr);
     {
+        if (Button("Select", _activeTool.type == ToolType::Select)) {
+            _activeTool = Tool{ ToolType::Select, SelectTool };
+        }
+
+        if (Button("Translate", _activeTool.type == ToolType::Translate)) {
+            _activeTool = Tool{ ToolType::Translate, TranslateTool };
+        }
+
+        if (Button("Rotate", _activeTool.type == ToolType::Rotate)) {
+            _activeTool = Tool{ ToolType::Rotate, RotateTool };
+        }
+
+        if (Button("Scale", _activeTool.type == ToolType::Scale)) {
+            _activeTool = Tool{ ToolType::Scale, ScaleTool };
+        }
+
+        Button("Scrub", _activeTool.type == ToolType::Scrub);
+
+        auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
+        auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
+
+        bool anyActive { false };
         Registry.view<Name, Position, Size>().each([&](auto entity,
                                                        const auto& name,
                                                        const auto& position,
@@ -383,36 +390,53 @@ void Application::drawRigids() {
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
 
-            auto mousePosition = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
-
             ImGui::SetCursorPos(impos);
             auto state = SmartButton(name.text, imsize);
             auto time = _sequencer.currentTime + (_sequencer.playing ? 1 : 0);
 
             if (state & SmartButtonState_Pressed) {
                 Registry.assign<Activated>(entity, _sequencer.currentTime);
-                Registry.assign<Input2DRange>(entity, mousePosition);
+                Registry.assign<Input2DRange>(entity, absolutePosition, relativePosition);
+                anyActive = true;
             }
 
             else if (state & SmartButtonState_Dragged) {
                 Registry.assign<Active>(entity);
-                Registry.replace<Input2DRange>(entity, mousePosition);
-
+                Registry.replace<Input2DRange>(entity, absolutePosition, relativePosition);
+                anyActive = true;
             }
 
             else if (state & SmartButtonState_Released) {
                 Registry.assign<Deactivated>(entity);
-                Registry.reset<Input2DRange>();
+                anyActive = true;
             }
         });
+
+        if (!anyActive) {
+            auto global = Registry.ctx<entt::entity>();
+
+            if (ImGui::IsMouseClicked(0)) {
+                Registry.assign<Activated>(global, _sequencer.currentTime);
+                Registry.assign<Input2DRange>(global, absolutePosition, relativePosition);
+            }
+
+            else if (ImGui::IsMouseDragging(0)) {
+                Registry.assign<Active>(global);
+                Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
+            }
+
+            else if (ImGui::IsMouseReleased(0)) {
+                Registry.assign<Deactivated>(global);
+            }
+        }
 
         Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
                                                                        const auto& channel,
                                                                        const auto& color) {
             if (auto event = _sequencer.overlapping(channel)) {
-                auto& data = *static_cast<DragdollEventData*>(event->data);
+                auto& data = *static_cast<TranslateEventData*>(event->data);
                 auto impos = ImVec2(Vector2(position + data.offset));
-                drawCursor(impos, color.fill);
+                Cursor(impos, color.fill);
             }
         });
     }
@@ -420,68 +444,24 @@ void Application::drawRigids() {
 }
 
 
-static void InputSystem() {
+void Application::_pollMouse() {    
+    auto global = Registry.ctx<entt::entity>();
+    auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos));
+    auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
 
-    // Handle press input of type: 2D range, relative anything with a position
-    Registry.view<Activated, Input2DRange, Position>().each([](auto entity,
-                                                               const auto& activated,
-                                                               const auto& input,
-                                                               const auto& position
-                                                               ) {
-        const bool is_first_event = !Registry.has<Sequentity::Channel>(entity);
+    if (ImGui::IsMouseClicked(0)) {
+        Registry.assign<Activated>(global, _sequencer.currentTime);
+        Registry.assign<Input2DRange>(global, absolutePosition);
+    }
 
-        auto* data = new DragdollEventData{}; {
-            data->offset = input - position;
-            data->positions.push_back(input);
-        }
+    else if (ImGui::IsMouseDragging(0, 0.0f)) {
+        Registry.assign<Active>(global);
+        Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
+    }
 
-        Sequentity::Event event; {
-            event.time = activated.time + 1;
-            event.length = 1;
-
-            // Store reference to our data
-            event.type = DragdollEvent;
-            event.data = static_cast<void*>(data);
-        }
-
-        // Write Sequentity data..
-        auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
-        channel.push_back(event);
-
-        // Update the relative positions of each event
-        // TODO: Is this really the most efficient way to do this?
-        if (is_first_event) {
-            Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
-                return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
-            });
-
-            int previous { 0 };
-            Registry.view<Index>().each([&](auto entity, auto& index) {
-                if (Registry.has<Sequentity::Channel>(entity)) {
-                    index.relative = previous;
-                    previous++;
-                }
-            });
-        }
-    });
-
-    Registry.view<Name, Active, Input2DRange, Sequentity::Channel>().each([](const auto& name,
-                                                                             const auto&,
-                                                                             const auto& input,
-                                                                             auto& channel
-                                                                             ) {
-        auto& event = channel.back();
-        auto data = static_cast<DragdollEventData*>(event.data);
-        data->positions.push_back(input);
-        event.length += 1;
-    });
-
-    Registry.view<Deactivated>().each([](auto entity, const auto&) {});
-
-    // Restore order to this world
-    Registry.reset<Active>();
-    Registry.reset<Activated>();
-    Registry.reset<Deactivated>();
+    else if (ImGui::IsMouseReleased(0)) {
+        Registry.assign<Deactivated>(global);
+    }
 }
 
 
@@ -497,14 +477,46 @@ void Application::drawEvent() {
     drawTransport();
     drawRigids();
 
+    // if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
+    //     _pollMouse();
+    // }
+
     // Handle any input coming from the above drawRigids()
-    InputSystem();
+    _activeTool.system();
 
-    Timer updateTimer;
+    // Update the relative index of each channel
+    if (Registry.view<Activated>().size() > 0) {
+
+        // TODO: Is this really the most efficient way to do this?
+        // It's for Sequentity to draw channels in order, but without gaps
+
+        Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
+            return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
+        });
+
+        int previous { 0 };
+        Registry.view<Index>().each([&](auto entity, auto& index) {
+            if (Registry.has<Sequentity::Channel>(entity)) {
+                index.relative = previous;
+                previous++;
+            }
+        });
+    }
+
     _sequencer.update();
-
-    Timer drawTimer;
     _sequencer.draw(&_showSequencer);
+
+    // Erase all current inputs
+    if (Registry.view<Deactivated>().size() > 0) {
+        Registry.reset<Input1DRange>();
+        Registry.reset<Input2DRange>();
+        Registry.reset<Input3DRange>();
+    }
+
+    // Restore order to this world
+    Registry.reset<Active>();
+    Registry.reset<Activated>();
+    Registry.reset<Deactivated>();
 
     if (_showMetrics) {
         ImGui::ShowMetricsWindow(&_showMetrics);
@@ -545,6 +557,7 @@ void Application::viewportEvent(ViewportEvent& event) {
         event.windowSize(), event.framebufferSize());
 }
 
+
 void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Esc)          this->exit();
     if (event.key() == KeyEvent::Key::Enter)        redraw();
@@ -553,23 +566,58 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::F1)           _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;
+
+    if (event.key() == KeyEvent::Key::K && !event.isRepeated()) {
+        Debug() << "Scrub tool..";
+        _previousTool = _activeTool;
+        _activeTool = Tool{ ToolType::Scrub, ScrubTool };
+    }
+
+    if (event.key() == KeyEvent::Key::Q) {
+        Debug() << "Select tool..";
+        _previousTool = _activeTool;
+        _activeTool = Tool{ ToolType::Select, SelectTool };
+    }
+
+    if (event.key() == KeyEvent::Key::W) {
+        Debug() << "Translate tool..";
+        _previousTool = _activeTool;
+        _activeTool = Tool{ ToolType::Translate, TranslateTool };
+    }
+
+    if (event.key() == KeyEvent::Key::E) {
+        Debug() << "Rotate tool..";
+        _previousTool = _activeTool;
+        _activeTool = Tool{ ToolType::Rotate, RotateTool };
+    }
+
+    if (event.key() == KeyEvent::Key::R) {
+        Debug() << "Scale tool..";
+        _previousTool = _activeTool;
+        _activeTool = Tool{ ToolType::Scale, ScaleTool };
+    }
+
     if(_imgui.handleKeyPressEvent(event)) return;
 }
 
 void Application::keyReleaseEvent(KeyEvent& event) {
+    if (event.key() == KeyEvent::Key::K) {
+        _activeTool = _previousTool;
+    }
+
     if(_imgui.handleKeyReleaseEvent(event)) return;
 }
 
 void Application::mousePressEvent(MouseEvent& event) {
-    if(_imgui.handleMousePressEvent(event)) return;
-}
-
-void Application::mouseReleaseEvent(MouseEvent& event) {
-    if(_imgui.handleMouseReleaseEvent(event)) return;
+    if (_imgui.handleMousePressEvent(event)) return;
 }
 
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
-    if(_imgui.handleMouseMoveEvent(event)) return;
+    if (_imgui.handleMouseMoveEvent(event)) return;
+}
+
+void Application::mouseReleaseEvent(MouseEvent& event) {
+    if (_imgui.handleMouseReleaseEvent(event)) return;
 }
 
 void Application::mouseScrollEvent(MouseScrollEvent& event) {
