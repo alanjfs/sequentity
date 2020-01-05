@@ -65,12 +65,6 @@ private:
 
     bool _running { true };
 
-    bool _mouseDragging { false };
-    struct _ {
-        Vector2i absolute;
-        Vector2i relative;
-    } _mouseDragPosition;
-
     Tool _activeTool { ToolType::Select, SelectTool };
     Tool _previousTool { ToolType::Select, SelectTool };
 
