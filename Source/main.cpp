@@ -33,16 +33,14 @@ public:
     explicit Application(const Arguments& arguments);
 
     void drawEvent() override;
-    void drawRigids();
-    void drawThemeEditor();
+    void drawScene();
     void drawTransport();
-    void drawTimeline();
     void drawCentralWidget();
 
-    void setup();
-    void update();
-    void clear();
-    void reset();
+    void setup();  // Populate registry with entities and components
+    void reset();  // Reset all entities
+    void update(); // Apply active events from Sequentity
+    void clear();  // Clear all events
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -125,7 +123,7 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     setup();
 
-    _sequentity.after_stepped([this](int time) { update(); });
+    _sequentity.after_time_changed([this]() { update(); });
     _sequentity.play();
 }
 
@@ -243,7 +241,26 @@ void Application::reset() {
 }
 
 void Application::clear() {
-    Registry.reset<Sequentity::Channel>();
+    _sequentity.clear();
+
+    // TODO: This is much too explicit and error prone. Is there a better
+    //       way to assert that when a channel goes away, so does the data?
+    Registry.view<Sequentity::Channel>().each([](auto& channel) {
+        for (auto& event : channel) {
+            if (event.type == TranslateEvent) {
+                delete static_cast<TranslateEventData*>(event.data);
+            }
+
+            else if (event.type == RotateEvent) {
+                delete static_cast<RotateEventData*>(event.data);
+            }
+
+            else {
+                Warning() << "Unknown event type" << event.type << "memory has leaked!";
+            }
+        }
+    });
+
     reset();
 }
 
@@ -321,7 +338,7 @@ void Application::drawTransport() {
         }
 
         if (ImGui::DragInt("Time", &sqstate.currentTime, 1.0f, sqstate.range.x(), sqstate.range.y())) {
-            _sequentity.update();
+            _sequentity.set_current_time(sqstate.currentTime);
         }
 
         if (ImGui::DragInt2("Range", sqstate.range.data())) {
@@ -348,7 +365,7 @@ void Application::drawTransport() {
 }
 
 
-void Application::drawRigids() {
+void Application::drawScene() {
     auto& sqstate = Registry.ctx<Sequentity::State>();
 
     ImVec2 size = ImGui::GetWindowSize();
@@ -407,11 +424,9 @@ void Application::drawRigids() {
 
         Button("Scrub", _activeTool.type == ToolType::Scrub);
 
-        // auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
         auto relativePosition = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
         auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
 
-        bool anyActive { false };
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
                                                                            const auto& name,
                                                                            const auto& position,
@@ -423,44 +438,23 @@ void Application::drawRigids() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color.fill);
 
-            auto state = SmartButton(name.text, impos, imsize, imangle, imcolor);
             auto time = sqstate.currentTime + (sqstate.playing ? 1 : 0);
+            SmartButton(name.text, impos, imsize, imangle, imcolor);
 
-            if (state & SmartButtonState_Pressed) {
+            if (ImGui::IsItemActivated()) {
                 Registry.assign<Activated>(entity, sqstate.currentTime);
                 Registry.assign<Input2DRange>(entity, absolutePosition, relativePosition);
-                anyActive = true;
             }
 
-            else if (state & SmartButtonState_Dragged) {
+            else if (ImGui::IsItemActive()) {
                 Registry.assign<Active>(entity);
                 Registry.replace<Input2DRange>(entity, absolutePosition, relativePosition);
-                anyActive = true;
             }
 
-            else if (state & SmartButtonState_Released) {
+            else if (ImGui::IsItemDeactivated()) {
                 Registry.assign<Deactivated>(entity);
-                anyActive = true;
             }
         });
-
-        // if (!anyActive) {
-        //     auto global = Registry.ctx<entt::entity>();
-
-        //     if (ImGui::IsMouseClicked(0)) {
-        //         Registry.assign<Activated>(global, _sequentity.currentTime);
-        //         Registry.assign<Input2DRange>(global, absolutePosition, relativePosition);
-        //     }
-
-        //     else if (ImGui::IsMouseDragging(0)) {
-        //         Registry.assign<Active>(global);
-        //         Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
-        //     }
-
-        //     else if (ImGui::IsMouseReleased(0)) {
-        //         Registry.assign<Deactivated>(global);
-        //     }
-        // }
 
         Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
                                                                        const auto& channel,
@@ -476,28 +470,6 @@ void Application::drawRigids() {
 }
 
 
-void Application::_pollMouse() {    
-    auto global = Registry.ctx<entt::entity>();
-    auto& sqstate = Registry.ctx<Sequentity::State>();
-    auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos));
-    auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
-
-    if (ImGui::IsMouseClicked(0)) {
-        Registry.assign<Activated>(global, sqstate.currentTime);
-        Registry.assign<Input2DRange>(global, absolutePosition);
-    }
-
-    else if (ImGui::IsMouseDragging(0, 0.0f)) {
-        Registry.assign<Active>(global);
-        Registry.replace<Input2DRange>(global, absolutePosition, relativePosition);
-    }
-
-    else if (ImGui::IsMouseReleased(0)) {
-        Registry.assign<Deactivated>(global);
-    }
-}
-
-
 void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
@@ -508,13 +480,9 @@ void Application::drawEvent() {
 
     drawCentralWidget();
     drawTransport();
-    drawRigids();
+    drawScene();
 
-    // if (!Registry.view<Activated>().size() || !Registry.view<Active>().size() || !Registry.view<Deactivated>().size()) {
-    //     _pollMouse();
-    // }
-
-    // Handle any input coming from the above drawRigids()
+    // Handle any input coming from the above drawScene()
     _activeTool.system();
 
     _sequentity.update();

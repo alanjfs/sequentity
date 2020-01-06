@@ -80,7 +80,13 @@ struct Event {
 using Channel = std::vector<Event>;
 
 
+/**
+ * @brief Callbacks
+ *
+ */
 using OverlappingCallback = std::function<void(const Event&)>;
+using TimeChangedCallback = std::function<void()>;
+
 
 struct State {
     bool playing { false };
@@ -103,9 +109,11 @@ struct Sequentity {
     void drawThemeEditor(bool* p_open = nullptr);
 
     void update();
+    void clear();
 
     void play();
-    void step(int time);
+    void step(int delta);
+    void set_current_time(int time);
     void stop();
 
     /**  Find intersecting events
@@ -134,15 +142,15 @@ struct Sequentity {
 
 public:
     // Callbacks
-    void before_stepped(std::function<void(int time)> func) { _before_stepped = func; }
-    void after_stepped(std::function<void(int time)> func) { _after_stepped = func; }
+    void before_time_changed(TimeChangedCallback func) { _before_time_changed = func; }
+    void after_time_changed(TimeChangedCallback func) { _after_time_changed = func; }
 
 private:
     entt::registry& _registry;
     int _previousTime { 0 };
 
-    std::function<void(int time)> _before_stepped = [](int) {};
-    std::function<void(int time)> _after_stepped = [](int) {};
+    TimeChangedCallback _before_time_changed = []() {};
+    TimeChangedCallback _after_time_changed = []() {};
 
     void _sort();
     void _on_new_channel();
@@ -251,46 +259,57 @@ void Sequentity::_sort() {
     });
 }
 
+
+void Sequentity::clear() {
+    Registry.reset<Channel>();
+}
+
 void Sequentity::play() {
     _registry.ctx<State>().playing ^= true;
 }
 
 
-void Sequentity::step(int time) {
-    auto& currentTime = _registry.ctx<State>().currentTime;
+void Sequentity::set_current_time(int time) {
+    auto& state = _registry.ctx<State>();
     auto& range = _registry.ctx<State>().range;
 
     // Prevent callbacks from being called unnecessarily
-    if (currentTime + time == _previousTime) return;
+    if (time == _previousTime) return;
 
-    _before_stepped(currentTime);
-
-    currentTime += time;
-
-    if (currentTime > range.y()) {
-        currentTime = range.x();
-    }
-
-    else if (currentTime < range.x()) {
-        currentTime = range.y();
-    }
-
-    _previousTime = currentTime;
-
-    _after_stepped(currentTime);
+    _before_time_changed();
+    _previousTime = time;
+    state.currentTime = time;
+    _after_time_changed();
 }
 
 
 void Sequentity::stop() {
-    step(_registry.ctx<State>().range.x() - _registry.ctx<State>().currentTime);
-    _registry.ctx<State>().playing = false;
+    auto& state = _registry.ctx<State>();
+
+    set_current_time(state.range.x());
+    state.playing = false;
 }
 
 
 void Sequentity::update() {
-    if (_registry.ctx<State>().playing) {
-        step(1);
+    auto& state = _registry.ctx<State>();
+    if (state.playing) step(1);
+}
+
+
+void Sequentity::step(int delta) {
+    auto& state = _registry.ctx<State>();
+    auto time = state.currentTime + delta;
+
+    if (time > state.range.y()) {
+        time = state.range.x();
     }
+
+    else if (time < state.range.x()) {
+        time = state.range.y();
+    }
+
+    set_current_time(time);
 }
 
 
