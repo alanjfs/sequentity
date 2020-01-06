@@ -251,7 +251,7 @@ void Application::clear() {
     int deletedCount { 0 };
     Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
         for (auto& [type, channel] : track) {
-            for (auto& event : channel) {
+            for (auto& event : channel.events) {
                 if (type == TranslateEvent) {
                     delete static_cast<TranslateEventData*>(event.data);
                     deletedCount++;
@@ -365,11 +365,11 @@ void Application::drawTransport() {
         }
 
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("##zoom", &_sequentity.zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
+        ImGui::SliderFloat("##zoom", &sqstate.zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("Zoom", &_sequentity.zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Scroll", _sequentity.scroll);
-        ImGui::SliderInt("Stride", &_sequentity.stride, 1, 5);
+        ImGui::SliderFloat("Zoom", &sqstate.zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
+        ImGui::DragFloat2("Scroll", sqstate.scroll);
+        ImGui::SliderInt("Stride", &sqstate.stride, 1, 5);
     }
     ImGui::End();
 }

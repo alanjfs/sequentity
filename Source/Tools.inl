@@ -97,7 +97,15 @@ static void TranslateTool() {
 
         // Write Sequentity data..
         auto& track = Registry.get_or_assign<Sequentity::Track>(entity);
-        track[TranslateEvent].push_back(event);
+        bool has_channel = track.count(TranslateEvent);
+
+        auto& channel = track[TranslateEvent];
+        channel.events.push_back(event);
+
+        if (!has_channel) {
+            channel.label = "Translate";
+            channel.color = color.fill;
+        }
     });
 
     Registry.view<Name, Active, Input2DRange, Sequentity::Track>().each([](const auto& name,
@@ -108,7 +116,7 @@ static void TranslateTool() {
         if (!track.count(TranslateEvent)) { Warning() << "This should never happen"; return; }
 
         auto& channel = track[TranslateEvent];
-        auto& event = channel.back();
+        auto& event = channel.events.back();
 
         auto data = static_cast<TranslateEventData*>(event.data);
         data->positions.push_back(input.absolute);
@@ -142,17 +150,25 @@ static void RotateTool() {
 
         // Write Sequentity data..
         auto& track = Registry.get_or_assign<Sequentity::Track>(entity);
-        track[RotateEvent].push_back(event);
+        bool has_channel = track.count(RotateEvent);
+
+        auto& channel = track[RotateEvent];
+        channel.events.push_back(event);
+
+        if (!has_channel) {
+            channel.label = "Rotate";
+            channel.color = color.fill;
+        }
     });
 
     Registry.view<Name, Active, Input2DRange, Sequentity::Track>().each([](const auto& name,
-                                                                             const auto&,
-                                                                             const auto& input,
-                                                                             auto& track) {
+                                                                           const auto&,
+                                                                           const auto& input,
+                                                                           auto& track) {
         if (!track.count(RotateEvent)) { Warning() << "This should never happen"; return; }
 
         auto& channel = track[RotateEvent];
-        auto& event = channel.back();
+        auto& event = channel.events.back();
 
         auto data = static_cast<RotateEventData*>(event.data);
         data->orientations.push_back(static_cast<float>(data->offset + input.relative.x()));
@@ -181,17 +197,24 @@ static void ScrubTool() {
         }
 
         auto global = Registry.ctx<entt::entity>();
-        auto& channel = Registry.get_or_assign<Sequentity::Channel>(global);
-        channel.push_back(event);
+        auto& track = Registry.get_or_assign<Sequentity::Track>(global);
+        bool has_channel = track.count(ScrubEvent);
+        auto& channel = track[ScrubEvent];
+        channel.events.push_back(event);
+
+        if (!has_channel) {
+            channel.label = "Scrub";
+        }
     });
 
     // Hold
-    Registry.view<Active, Input2DRange, Sequentity::Channel>().each([](const auto&,
-                                                                       const auto& input,
-                                                                       auto& channel) {
-        auto& event = channel.back();
+    Registry.view<Active, Input2DRange, Sequentity::Track>().each([](const auto&,
+                                                                     const auto& input,
+                                                                     auto& track) {
+        if (!track.count(ScrubEvent)) { Warning() << "This should never happen"; return; }
 
-        if (event.type != ScrubEvent) return;
+        auto& channel = track[ScrubEvent];
+        auto& event = channel.events.back();
 
         auto data = static_cast<ScrubEventData*>(event.data);
         data->deltas.push_back(input.relative.x());

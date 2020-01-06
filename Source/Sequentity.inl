@@ -88,8 +88,11 @@ struct Event {
  * @brief A collection of events
  *
  */
-using Channel = std::vector<Event>;
-
+struct Channel {
+    const char* label { "Untitled" };
+    ImVec4 color { ImColor::HSV(0.33f, 0.5f, 1.0f) };
+    std::vector<Event> events;
+};
 
 /**
  * @brief A collection of channels
@@ -106,10 +109,21 @@ using OverlappingCallback = std::function<void(const Event&)>;
 using TimeChangedCallback = std::function<void()>;
 
 
+/**
+ * @brief All of Sequentities (mutable) state, accessible from your application
+ *
+ */
 struct State {
+
+    // Functional
     bool playing { false };
     int currentTime { 0 };
-    Vector2i range { 0, 250 };
+    Vector2i range { 0, 100 };
+
+    // Visual
+    float zoom[2] { 200.0f, 30.0f };
+    float scroll[2] { 8.0f, 8.0f };
+    int stride { 3 };
 };
 
 /**
@@ -147,16 +161,6 @@ struct Sequentity {
     const Event* overlapping(const Track& channel);
     void each_overlapping(const Track& channel, OverlappingCallback func);
 
-    // Settings
-    float zoom[2] { 200.0f, 30.0f };
-    float scroll[2] { 8.0f, 8.0f };
-    int stride { 3 };
-
-    // If an event reaches beyond the end and loops around,
-    // should we create a new event at the start to emulate
-    // a long-running event? Default is to stop the event
-    // at the end.
-    bool splitEndEvent { false };
 
 public:
     // Callbacks
@@ -320,7 +324,7 @@ const Event* Sequentity::overlapping(const Track& track) {
     const Event* intersecting { nullptr };
 
     for (auto& [type, channel] : track) {
-        for (auto& event : channel) {
+        for (auto& event : channel.events) {
             if (contains(event, _registry.ctx<State>().currentTime)) {
                 intersecting = &event;
 
@@ -336,7 +340,7 @@ const Event* Sequentity::overlapping(const Track& track) {
 
 void Sequentity::each_overlapping(const Track& track, OverlappingCallback func) {
     for (auto& [type, channel] : track) {
-        for (auto& event : channel) {
+        for (auto& event : channel.events) {
             if (contains(event, _registry.ctx<State>().currentTime)) func(event);
         }
     }
@@ -372,6 +376,7 @@ void Sequentity::draw(bool* p_open) {
 
     ImGui::Begin("Editor", p_open, windowFlags);
     {
+        auto& state = _registry.ctx<State>();
         auto* painter = ImGui::GetWindowDrawList();
         const auto& style = ImGui::GetStyle();
         auto titlebarHeight = 24.0f; // TODO: Find an exact value for this
@@ -401,10 +406,10 @@ void Sequentity::draw(bool* p_open) {
         auto B = windowPos + ImVec2{ ListerTheme.width, 0.0f };
         auto C = windowPos + ImVec2{ ListerTheme.width, TimelineTheme.height };
 
-        float zoom_ = zoom[0] / stride;
-        int stride_ = stride * 5;  // How many frames to skip drawing
-        int minTime = _registry.ctx<State>().range.x() / stride_;
-        int maxTime = _registry.ctx<State>().range.y() / stride_;
+        float zoom_ = state.zoom[0] / state.stride;
+        int stride_ = state.stride * 5;  // How many frames to skip drawing
+        int minTime = state.range.x() / stride_;
+        int maxTime = state.range.y() / stride_;
 
         auto drawCrossBackground = [&]() {
             painter->AddRectFilled(
@@ -447,12 +452,12 @@ void Sequentity::draw(bool* p_open) {
 
             // Stipple
             bool isOdd { true };
-            for (float y = 0; y < windowSize.y; y += zoom[1]) {
+            for (float y = 0; y < windowSize.y; y += state.zoom[1]) {
                 isOdd ^= true;
 
                 if (isOdd) painter->AddRectFilled(
-                    A + ImVec2{ 0, y + scroll[1] },
-                    A + ImVec2{ ListerTheme.width, y + scroll[1] + zoom[1] - 1 },
+                    A + ImVec2{ 0, y + state.scroll[1] },
+                    A + ImVec2{ ListerTheme.width, y + state.scroll[1] + state.zoom[1] - 1 },
                     ImColor(ListerTheme.alternate)
                 );
             }
@@ -506,8 +511,8 @@ void Sequentity::draw(bool* p_open) {
                 float yMin = 0.0f;
                 float yMax = TimelineTheme.height - 1;
 
-                xMin += B.x + scroll[0];
-                xMax += B.x + scroll[0];
+                xMin += B.x + state.scroll[0];
+                xMax += B.x + state.scroll[0];
                 yMin += B.y;
                 yMax += B.y;
 
@@ -539,8 +544,8 @@ void Sequentity::draw(bool* p_open) {
             float yMin = TimelineTheme.height;
             float yMax = TimelineTheme.height;
 
-            xMin += B.x + scroll[0];
-            xMax += B.x + scroll[0];
+            xMin += B.x + state.scroll[0];
+            xMax += B.x + state.scroll[0];
             yMin += B.y;
             yMax += B.y;
 
@@ -554,8 +559,8 @@ void Sequentity::draw(bool* p_open) {
                 float yMin = 0.0f;
                 float yMax = windowSize.y;
 
-                xMin += C.x + scroll[0];
-                xMax += C.x + scroll[0];
+                xMin += C.x + state.scroll[0];
+                xMax += C.x + state.scroll[0];
                 yMin += C.y;
                 yMax += C.y;
 
@@ -584,13 +589,13 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawCurrentTime = [&]() {
-            auto xMin = _registry.ctx<State>().currentTime * zoom_ / stride_;
+            auto xMin = state.currentTime * zoom_ / stride_;
             auto xMax = 0.0f;
             auto yMin = TimelineTheme.height;
             auto yMax = windowSize.y;
 
-            xMin += B.x + scroll[0];
-            xMax += B.x + scroll[0];
+            xMin += B.x + state.scroll[0];
+            xMax += B.x + state.scroll[0];
             yMin += B.y;
             yMax += B.y;
 
@@ -653,16 +658,16 @@ void Sequentity::draw(bool* p_open) {
 
             xMin += A.x;
             xMax += A.x;
-            yMin += A.y + scroll[1];
-            yMax += A.y + scroll[1];
+            yMin += A.y + state.scroll[1];
+            yMax += A.y + state.scroll[1];
 
             bool isOdd = false;
-            for (float y = yMin; y < yMax; y += zoom[1]) {
+            for (float y = yMin; y < yMax; y += state.zoom[1]) {
                 isOdd ^= true;
 
                 if (isOdd) painter->AddRectFilled(
                     { xMin, y },
-                    { xMax, y + zoom[1] - 1 },
+                    { xMax, y + state.zoom[1] - 1 },
                     ImColor(EditorTheme.alternate)
                 );
             }
@@ -699,8 +704,8 @@ void Sequentity::draw(bool* p_open) {
                 int typeCount { 0 };
 
                 // Draw channel header
-                ImVec2 corner { C.x, C.y + yoffset + scroll[1] };
-                ImVec2 size { windowSize.x, zoom[1] };
+                ImVec2 corner { C.x, C.y + yoffset + state.scroll[1] };
+                ImVec2 size { windowSize.x, state.zoom[1] };
 
                 painter->AddRectFilled(
                     corner,
@@ -713,20 +718,20 @@ void Sequentity::draw(bool* p_open) {
                 // Give each event a unique ImGui ID
                 unsigned int imid { 0 };
                 for (auto& [type, channel] : track) {
-                    for (auto& event : channel) {
+                    for (auto& event : channel.events) {
                         int startTime = event.time;
                         int endTime = startTime + event.length;
 
-                        float offset = zoom[1] * typeCount;
+                        float offset = state.zoom[1] * typeCount;
                         float xMin = static_cast<float>(startTime) * zoom_ / stride_;
                         float xMax = static_cast<float>(endTime) * zoom_ / stride_;
                         float yMin = yoffset + offset;
-                        float yMax = yMin + zoom[1];
+                        float yMax = yMin + state.zoom[1];
 
-                        xMin += C.x + scroll[0];
-                        xMax += C.x + scroll[0];
-                        yMin += C.y + scroll[1];
-                        yMax += C.y + scroll[1];
+                        xMin += C.x + state.scroll[0];
+                        xMax += C.x + state.scroll[0];
+                        yMin += C.y + state.scroll[1];
+                        yMax += C.y + state.scroll[1];
 
                         ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
 
@@ -734,7 +739,7 @@ void Sequentity::draw(bool* p_open) {
                         label += name.text;
                         label += std::to_string(imid);
 
-                        ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), zoom[1]};
+                        ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), state.zoom[1]};
                         ImGui::InvisibleButton(label.c_str(), size);
 
                         float thickness = 0.0f;
@@ -792,7 +797,7 @@ void Sequentity::draw(bool* p_open) {
                     typeCount += 1;
                 }
 
-                yoffset += zoom[1] * track.size();
+                yoffset += state.zoom[1] * track.size();
             });
         };
 
@@ -818,32 +823,32 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawLister = [&]() {
-            float xoffset = 0;
             float yoffset = 0;
 
             _registry.view<Index, Name, Track>().each<Index>([&](const auto&, const auto& name, auto& track) {
-                float xMin = xoffset;
+                float xMin = 0.0f;
                 float xMax = ListerTheme.width;
                 float yMin = yoffset;
                 float yMax = 0.0f;
 
                 xMin += A.x;
                 xMax += A.x;
-                yMin += A.y + scroll[1];
-                yMax += A.y + scroll[1];
+                yMin += A.y + state.scroll[1];
+                yMax += A.y + state.scroll[1];
 
+                static auto padding = 5.0f;
                 const auto corner = ImVec2{ xMin, yMin };
-                const auto padding = 5.0f;
-                const auto textSize = ImGui::CalcTextSize(name.text);
-                const auto pos = ImVec2{
-                    ListerTheme.width - textSize.x - padding,
-                    zoom[1] / 2.0f - textSize.y / 2.0f
-                };
 
                 // Draw channel header
                 //  _________________________________________
                 // |_________________________________________|
                 //
+                const auto textSize = ImGui::CalcTextSize(name.text);
+                const auto pos = ImVec2{
+                    padding,
+                    state.zoom[1] / 2.0f - textSize.y / 2.0f
+                };
+
                 painter->AddText(corner + pos, ImColor(ListerTheme.text), name.text);
 
                 // Draw children
@@ -853,17 +858,21 @@ void Sequentity::draw(bool* p_open) {
                 // |-- child
                 // |__ child
                 //
-                int childoffset = track.size();
-                // for (auto& [type, channel] : track) {
-                //     childoffset += 1;
+                int childoffset { 0 };
+                for (auto& [type, channel] : track) {
+                    const auto textSize = ImGui::CalcTextSize(channel.label);
+                    const auto pos = ImVec2{
+                        ListerTheme.width - textSize.x - padding,
+                        state.zoom[1] / 2.0f - textSize.y / 2.0f
+                    };
 
-                    // for (const auto& event : channel) {
-                    //     int offset = type;
-                    //     childoffset = std::max(childoffset, offset);
-                    // }
-                // }
+                    painter->AddText(corner + pos + ImVec2{ 0.0f, (childoffset + 1) * state.zoom[1] },
+                                     ImColor(ListerTheme.text), channel.label);
 
-                yoffset += zoom[1] + childoffset * zoom[1];
+                    childoffset += 1;
+                }
+
+                yoffset += state.zoom[1] + childoffset * state.zoom[1];
             });
         };
 
@@ -936,11 +945,11 @@ void Sequentity::draw(bool* p_open) {
         const bool scrollV = ImGui::IsItemActive();
 
         if (scrollM) {
-            scroll[0] += ImGui::GetIO().MouseDelta.x;
-            scroll[1] += ImGui::GetIO().MouseDelta.y;
+            state.scroll[0] += ImGui::GetIO().MouseDelta.x;
+            state.scroll[1] += ImGui::GetIO().MouseDelta.y;
         }
-        else if (scrollV) scroll[1] += ImGui::GetIO().MouseDelta.y;
-        else if (scrollH) scroll[0] += ImGui::GetIO().MouseDelta.x;
+        else if (scrollV) state.scroll[1] += ImGui::GetIO().MouseDelta.y;
+        else if (scrollH) state.scroll[0] += ImGui::GetIO().MouseDelta.x;
     }
     ImGui::End();
 }
