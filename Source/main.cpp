@@ -1,3 +1,9 @@
+/**
+
+Example usage of Sequentity.inl
+
+*/
+
 #include <string>
 #include <iostream>
 #include <unordered_map>
@@ -192,9 +198,7 @@ void Application::update() {
     }
 
     else {
-        Registry.view<Sequentity::Channel, Color>().each([&](auto entity, 
-                                                             const auto& channel,
-                                                             const auto& color) {
+        Registry.view<Sequentity::Channel>().each([&](auto entity, const auto& channel) {
             _sequentity.each_overlapping(channel, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
@@ -237,22 +241,24 @@ void Application::reset() {
     Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
         position = initial;
     });
-
 }
 
+
 void Application::clear() {
-    _sequentity.clear();
 
     // TODO: This is much too explicit and error prone. Is there a better
     //       way to assert that when a channel goes away, so does the data?
-    Registry.view<Sequentity::Channel>().each([](auto& channel) {
+    int deletedCount { 0 };
+    Registry.view<Sequentity::Channel>().each([&deletedCount](auto& channel) {
         for (auto& event : channel) {
             if (event.type == TranslateEvent) {
                 delete static_cast<TranslateEventData*>(event.data);
+                deletedCount++;
             }
 
             else if (event.type == RotateEvent) {
                 delete static_cast<RotateEventData*>(event.data);
+                deletedCount++;
             }
 
             else {
@@ -261,6 +267,8 @@ void Application::clear() {
         }
     });
 
+    if (deletedCount) Debug() << "Deleted" << deletedCount << "events";
+    _sequentity.clear();
     reset();
 }
 
