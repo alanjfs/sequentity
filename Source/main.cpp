@@ -60,7 +60,7 @@ private:
     void _pollMouse();
 
     ImGuiIntegration::Context _imgui{ NoCreate };
-    Sequentity::Sequentity _sequencer { Registry };
+    Sequentity::Sequentity _sequentity { Registry };
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
@@ -125,8 +125,8 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     setup();
 
-    _sequencer.after_stepped([this](int time) { update(); });
-    _sequencer.play();
+    _sequentity.after_stepped([this](int time) { update(); });
+    _sequentity.play();
 }
 
 
@@ -185,8 +185,9 @@ void Application::setup() {
 
 
 void Application::update() {
-    auto startTime = _sequencer.range.x();
-    auto currentTime = _sequencer.currentTime;
+    auto& sqstate = Registry.ctx<Sequentity::State>();
+    auto startTime = sqstate.range.x();
+    auto currentTime = sqstate.currentTime;
 
     if (currentTime <= startTime) {
         reset();
@@ -196,7 +197,7 @@ void Application::update() {
         Registry.view<Sequentity::Channel, Color>().each([&](auto entity, 
                                                              const auto& channel,
                                                              const auto& color) {
-            _sequencer.each_overlapping(channel, [&](auto& event) {
+            _sequentity.each_overlapping(channel, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
@@ -299,17 +300,19 @@ void Application::drawCentralWidget() {
 
 
 void Application::drawTransport() {
+    auto& sqstate = Registry.ctx<Sequentity::State>();
+
     ImGui::Begin("Transport", nullptr);
     {
-        if (ImGui::Button("Play")) _sequencer.play();
+        if (ImGui::Button("Play")) _sequentity.play();
         ImGui::SameLine();
-        if (ImGui::Button("<")) _sequencer.step(-1);
+        if (ImGui::Button("<")) _sequentity.step(-1);
         ImGui::SameLine();
-        if (ImGui::Button(">")) _sequencer.step(1);
+        if (ImGui::Button(">")) _sequentity.step(1);
 
         ImGui::SameLine();
         if (ImGui::Button("Stop")) {
-            _sequencer.stop();
+            _sequentity.stop();
         }
 
         ImGui::SameLine();
@@ -317,35 +320,37 @@ void Application::drawTransport() {
             clear();
         }
 
-        if (ImGui::DragInt("Time", &_sequencer.currentTime, 1.0f, _sequencer.range.x(), _sequencer.range.y())) {
-            _sequencer.update();
+        if (ImGui::DragInt("Time", &sqstate.currentTime, 1.0f, sqstate.range.x(), sqstate.range.y())) {
+            _sequentity.update();
         }
 
-        if (ImGui::DragInt2("Range", _sequencer.range.data())) {
-            if (_sequencer.range.x() < 0) _sequencer.range.x() = 0;
-            if (_sequencer.range.y() < 5) _sequencer.range.y() = 5;
+        if (ImGui::DragInt2("Range", sqstate.range.data())) {
+            if (sqstate.range.x() < 0) sqstate.range.x() = 0;
+            if (sqstate.range.y() < 5) sqstate.range.y() = 5;
 
-            if (_sequencer.currentTime < _sequencer.range.x()) {
-                _sequencer.currentTime = _sequencer.range.x();
+            if (sqstate.currentTime < sqstate.range.x()) {
+                sqstate.currentTime = sqstate.range.x();
             }
 
-            if (_sequencer.currentTime > _sequencer.range.y()) {
-                _sequencer.currentTime = _sequencer.range.y();
+            if (sqstate.currentTime > sqstate.range.y()) {
+                sqstate.currentTime = sqstate.range.y();
             }
         }
 
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("##zoom", &_sequencer.zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
+        ImGui::SliderFloat("##zoom", &_sequentity.zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("Zoom", &_sequencer.zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Scroll", _sequencer.scroll);
-        ImGui::SliderInt("Stride", &_sequencer.stride, 1, 5);
+        ImGui::SliderFloat("Zoom", &_sequentity.zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
+        ImGui::DragFloat2("Scroll", _sequentity.scroll);
+        ImGui::SliderInt("Stride", &_sequentity.stride, 1, 5);
     }
     ImGui::End();
 }
 
 
 void Application::drawRigids() {
+    auto& sqstate = Registry.ctx<Sequentity::State>();
+
     ImVec2 size = ImGui::GetWindowSize();
     Vector2i shapeSize { 100, 100 };
 
@@ -419,10 +424,10 @@ void Application::drawRigids() {
             auto imcolor = ImColor(color.fill);
 
             auto state = SmartButton(name.text, impos, imsize, imangle, imcolor);
-            auto time = _sequencer.currentTime + (_sequencer.playing ? 1 : 0);
+            auto time = sqstate.currentTime + (sqstate.playing ? 1 : 0);
 
             if (state & SmartButtonState_Pressed) {
-                Registry.assign<Activated>(entity, _sequencer.currentTime);
+                Registry.assign<Activated>(entity, sqstate.currentTime);
                 Registry.assign<Input2DRange>(entity, absolutePosition, relativePosition);
                 anyActive = true;
             }
@@ -443,7 +448,7 @@ void Application::drawRigids() {
         //     auto global = Registry.ctx<entt::entity>();
 
         //     if (ImGui::IsMouseClicked(0)) {
-        //         Registry.assign<Activated>(global, _sequencer.currentTime);
+        //         Registry.assign<Activated>(global, _sequentity.currentTime);
         //         Registry.assign<Input2DRange>(global, absolutePosition, relativePosition);
         //     }
 
@@ -460,7 +465,7 @@ void Application::drawRigids() {
         Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
                                                                        const auto& channel,
                                                                        const auto& color) {
-            if (auto event = _sequencer.overlapping(channel)) {
+            if (auto event = _sequentity.overlapping(channel)) {
                 auto& data = *static_cast<TranslateEventData*>(event->data);
                 auto impos = ImVec2(Vector2(position + data.offset));
                 Cursor(impos, color.fill);
@@ -473,11 +478,12 @@ void Application::drawRigids() {
 
 void Application::_pollMouse() {    
     auto global = Registry.ctx<entt::entity>();
+    auto& sqstate = Registry.ctx<Sequentity::State>();
     auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos));
     auto relativePosition = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
 
     if (ImGui::IsMouseClicked(0)) {
-        Registry.assign<Activated>(global, _sequencer.currentTime);
+        Registry.assign<Activated>(global, sqstate.currentTime);
         Registry.assign<Input2DRange>(global, absolutePosition);
     }
 
@@ -511,27 +517,8 @@ void Application::drawEvent() {
     // Handle any input coming from the above drawRigids()
     _activeTool.system();
 
-    // Update the relative index of each channel
-    if (Registry.view<Activated>().size() > 0) {
-
-        // TODO: Is this really the most efficient way to do this?
-        // It's for Sequentity to draw channels in order, but without gaps
-
-        Registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
-            return Registry.get<Index>(lhs).absolute < Registry.get<Index>(rhs).absolute;
-        });
-
-        int previous { 0 };
-        Registry.view<Index>().each([&](auto entity, auto& index) {
-            if (Registry.has<Sequentity::Channel>(entity)) {
-                index.relative = previous;
-                previous++;
-            }
-        });
-    }
-
-    _sequencer.update();
-    _sequencer.draw(&_showSequencer);
+    _sequentity.update();
+    _sequentity.draw(&_showSequencer);
 
     // Erase all current inputs
     if (Registry.view<Deactivated>().size() > 0) {
@@ -550,7 +537,7 @@ void Application::drawEvent() {
     }
 
     if (_showStyleEditor) {
-        _sequencer.drawThemeEditor();
+        _sequentity.drawThemeEditor();
         ImGui::ShowStyleEditor();
     }
 

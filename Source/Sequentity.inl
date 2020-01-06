@@ -2,7 +2,7 @@
 
 ---===  Sequentity  ===---
 
-An immediate-mode Sequentity, written in C++ with ImGui, Magnum and EnTT
+An immediate-mode sequencer, written in C++ with ImGui, Magnum and EnTT
 
 ---=== === === === === ---
 
@@ -82,6 +82,12 @@ using Channel = std::vector<Event>;
 
 using OverlappingCallback = std::function<void(const Event&)>;
 
+struct State {
+    bool playing { false };
+    int currentTime { 0 };
+    Vector2i range { 0, 250 };
+};
+
 /**
  * @brief Main window
  *
@@ -91,7 +97,7 @@ struct Sequentity {
     // Sequentity reads Event and Channel components from your EnTT registry
     // but the involvement of EnTT is minimal and easily replaced by your own
     // implementation. See any reference to _registry below.
-    Sequentity(entt::registry& registry) : _registry(registry) {}
+    Sequentity(entt::registry& registry);
 
     void draw(bool* p_open = nullptr);
     void drawThemeEditor(bool* p_open = nullptr);
@@ -115,12 +121,7 @@ struct Sequentity {
     const Event* overlapping(const Channel& channel);
     void each_overlapping(const Channel& channel, OverlappingCallback func);
 
-    // State
-    bool playing { false };
-    int currentTime { 0 };
-    Vector2i range { 0, 250 };
-
-    // Options
+    // Settings
     float zoom[2] { 200.0f, 30.0f };
     float scroll[2] { 8.0f, 8.0f };
     int stride { 3 };
@@ -139,8 +140,14 @@ public:
 private:
     entt::registry& _registry;
     int _previousTime { 0 };
+
     std::function<void(int time)> _before_stepped = [](int) {};
     std::function<void(int time)> _after_stepped = [](int) {};
+
+    void _sort();
+    void _on_new_channel();
+    // void _on_new_event(entt::entity, entt::registry&);
+    // void _on_new_event_type();
 };
 
 
@@ -203,12 +210,55 @@ static struct EditorTheme_ {
 } EditorTheme;
 
 
+Sequentity::Sequentity(entt::registry& registry) : _registry(registry) {
+    
+    // Store state such that it is accessible externally
+    registry.ctx_or_set<State>();
+
+    registry.on_construct<Channel>().connect<&Sequentity::_on_new_channel>(*this);
+}
+
+
+void Sequentity::_on_new_channel() {
+    _sort();
+}
+
+
+// void Sequentity::_on_new_event(const Event& event) {
+//     Debug() << "A new event was created.";
+
+//     auto& event = _registry.get<Event>(entity);
+//     bool is_known = std::find(_known_events.begin(),
+//                               _known_events.end(),
+//                               event.type) != _known_events.end();
+
+//     if (!is_known) {
+//         _known_events.push_back(event.type);
+//         _on_new_event_type();
+//     }
+// }
+
+
+// void Sequentity::_on_new_event_type() {
+//     Debug() << "A new event type was created.";
+//     _sort();
+// }
+
+
+void Sequentity::_sort() {
+    _registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
+        return _registry.get<Index>(lhs).absolute < _registry.get<Index>(rhs).absolute;
+    });
+}
+
 void Sequentity::play() {
-    playing ^= true;
+    _registry.ctx<State>().playing ^= true;
 }
 
 
 void Sequentity::step(int time) {
+    auto& currentTime = _registry.ctx<State>().currentTime;
+    auto& range = _registry.ctx<State>().range;
 
     // Prevent callbacks from being called unnecessarily
     if (currentTime + time == _previousTime) return;
@@ -232,13 +282,13 @@ void Sequentity::step(int time) {
 
 
 void Sequentity::stop() {
-    step(range.x() - currentTime);
-    playing = false;
+    step(_registry.ctx<State>().range.x() - _registry.ctx<State>().currentTime);
+    _registry.ctx<State>().playing = false;
 }
 
 
 void Sequentity::update() {
-    if (playing) {
+    if (_registry.ctx<State>().playing) {
         step(1);
     }
 }
@@ -255,7 +305,7 @@ const Event* Sequentity::overlapping(const Channel& channel) {
     const Event* intersecting { nullptr };
 
     for (auto& event : channel) {
-        if (contains(event, currentTime)) {
+        if (contains(event, _registry.ctx<State>().currentTime)) {
             intersecting = &event;
 
             // Ignore overlapping
@@ -269,7 +319,7 @@ const Event* Sequentity::overlapping(const Channel& channel) {
 
 void Sequentity::each_overlapping(const Channel& channel, OverlappingCallback func) {
     for (auto& event : channel) {
-        if (contains(event, currentTime)) func(event);
+        if (contains(event, _registry.ctx<State>().currentTime)) func(event);
     }
 }
 
@@ -334,8 +384,8 @@ void Sequentity::draw(bool* p_open) {
 
         float zoom_ = zoom[0] / stride;
         int stride_ = stride * 5;  // How many frames to skip drawing
-        int minTime = range.x() / stride_;
-        int maxTime = range.y() / stride_;
+        int minTime = _registry.ctx<State>().range.x() / stride_;
+        int maxTime = _registry.ctx<State>().range.y() / stride_;
 
         auto drawCrossBackground = [&]() {
             painter->AddRectFilled(
@@ -520,7 +570,7 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawCurrentTime = [&]() {
-            auto xMin = currentTime * zoom_ / stride_;
+            auto xMin = _registry.ctx<State>().currentTime * zoom_ / stride_;
             auto xMax = 0.0f;
             auto yMin = TimelineTheme.height;
             auto yMax = windowSize.y;
@@ -616,9 +666,24 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawEvents = [&]() {
-            _registry.view<Index, Name, Channel>().each([&](const auto index,
-                                                            const auto& name,
-                                                            auto& channel) {
+            float yoffset { 0.0f };
+
+            auto is_known = [&](EventType type, std::vector<EventType>& known_events) -> bool {
+                bool found = std::find(known_events.begin(),
+                                       known_events.end(),
+                                       type) != known_events.end();
+
+                if (!found) {
+                    known_events.push_back(type);
+                    return false;
+                }
+
+                return true;
+            };
+
+            _registry.view<Index, Name, Channel>().each<Index>([&](auto entity, const auto, const auto& name, auto& channel) {
+                auto& types = _registry.get_or_assign<std::vector<EventType>>(entity);
+
                 unsigned int count { 0 };
 
                 for (auto& event : channel) {
@@ -628,7 +693,7 @@ void Sequentity::draw(bool* p_open) {
 
                     float xMin = static_cast<float>(startTime) * zoom_ / stride_;
                     float xMax = static_cast<float>(endTime) * zoom_ / stride_;
-                    float yMin = zoom[1] * index.relative;
+                    float yMin = yoffset;
                     float yMax = yMin + zoom[1];
 
                     xMin += C.x + scroll[0];
@@ -698,6 +763,8 @@ void Sequentity::draw(bool* p_open) {
 
                     count++;
                 }
+
+                yoffset += zoom[1];
             });
         };
 
@@ -717,12 +784,12 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawLister = [&]() {
-            const ImVec2 size { ListerTheme.width, zoom[1] };
+            float yoffset = 0;
 
-            _registry.view<Name, Index, Channel>().each([&](auto entity, const auto& name, const auto& index, const auto&) {
+            _registry.view<Index, Name, Channel>().each<Index>([&](const auto&, const auto& name, auto& channel) {
                 float xMin = 0.0f;
                 float xMax = ListerTheme.width;
-                float yMin = zoom[1] * index.relative;
+                float yMin = yoffset;
                 float yMax = 0.0f;
 
                 xMin += A.x;
@@ -737,6 +804,8 @@ void Sequentity::draw(bool* p_open) {
                 const auto padding = 5.0f;
                 const auto textSize = ImGui::CalcTextSize(name.text);
                 painter->AddText(topLeftGlobal + ImVec2{ ListerTheme.width - textSize.x - padding, zoom[1] / 2.0f - textSize.y / 2.0f }, ImColor(ListerTheme.text), name.text);
+
+                yoffset += zoom[1];
             });
         };
 
@@ -761,7 +830,7 @@ void Sequentity::draw(bool* p_open) {
         // User Input
         //
 
-        /** Dual Scroll
+        /** Pan
          *
          *        ^
          *        |
@@ -780,7 +849,7 @@ void Sequentity::draw(bool* p_open) {
             (ImGui::IsWindowFocused() && ImGui::GetIO().KeyAlt && ImGui::GetIO().MouseDown[0])
         );
 
-        /** Vertical Scroll
+        /** Vertical Pan
          *
          *
          *
@@ -794,7 +863,7 @@ void Sequentity::draw(bool* p_open) {
         if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         const bool scrollH = ImGui::IsItemActive();
 
-        /** Vertical Scroll
+        /** Vertical Pan
          *
          *        ^
          *        |
