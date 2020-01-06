@@ -198,8 +198,8 @@ void Application::update() {
     }
 
     else {
-        Registry.view<Sequentity::Channel>().each([&](auto entity, const auto& channel) {
-            _sequentity.each_overlapping(channel, [&](auto& event) {
+        Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
+            _sequentity.each_overlapping(track, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
@@ -249,20 +249,22 @@ void Application::clear() {
     // TODO: This is much too explicit and error prone. Is there a better
     //       way to assert that when a channel goes away, so does the data?
     int deletedCount { 0 };
-    Registry.view<Sequentity::Channel>().each([&deletedCount](auto& channel) {
-        for (auto& event : channel) {
-            if (event.type == TranslateEvent) {
-                delete static_cast<TranslateEventData*>(event.data);
-                deletedCount++;
-            }
+    Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
+        for (auto& [type, channel] : track) {
+            for (auto& event : channel) {
+                if (type == TranslateEvent) {
+                    delete static_cast<TranslateEventData*>(event.data);
+                    deletedCount++;
+                }
 
-            else if (event.type == RotateEvent) {
-                delete static_cast<RotateEventData*>(event.data);
-                deletedCount++;
-            }
+                else if (type == RotateEvent) {
+                    delete static_cast<RotateEventData*>(event.data);
+                    deletedCount++;
+                }
 
-            else {
-                Warning() << "Unknown event type" << event.type << "memory has leaked!";
+                else {
+                    Warning() << "Unknown event type" << event.type << "memory has leaked!";
+                }
             }
         }
     });
@@ -464,10 +466,10 @@ void Application::drawScene() {
             }
         });
 
-        Registry.view<Position, Sequentity::Channel, Color>().each([&](const auto& position,
-                                                                       const auto& channel,
-                                                                       const auto& color) {
-            if (auto event = _sequentity.overlapping(channel)) {
+        Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
+                                                                     const auto& track,
+                                                                     const auto& color) {
+            if (auto event = _sequentity.overlapping(track)) {
                 auto& data = *static_cast<TranslateEventData*>(event->data);
                 auto impos = ImVec2(Vector2(position + data.offset));
                 Cursor(impos, color.fill);

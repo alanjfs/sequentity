@@ -52,6 +52,7 @@ struct ScrubEventData {
     std::vector<int> deltas;
 };
 
+
 // Possible event types
 enum EventType : Sequentity::EventType {
     InvalidEvent = 0,  // Catch uninitialised types
@@ -95,18 +96,19 @@ static void TranslateTool() {
         }
 
         // Write Sequentity data..
-        auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
-        channel.push_back(event);
+        auto& track = Registry.get_or_assign<Sequentity::Track>(entity);
+        track[TranslateEvent].push_back(event);
     });
 
-    Registry.view<Name, Active, Input2DRange, Sequentity::Channel>().each([](const auto& name,
-                                                                             const auto&,
-                                                                             const auto& input,
-                                                                             auto& channel
+    Registry.view<Name, Active, Input2DRange, Sequentity::Track>().each([](const auto& name,
+                                                                           const auto&,
+                                                                           const auto& input,
+                                                                           auto& track
                                                                              ) {
-        auto& event = channel.back();
+        if (!track.count(TranslateEvent)) { Warning() << "This should never happen"; return; }
 
-        if (event.type != TranslateEvent) return;
+        auto& channel = track[TranslateEvent];
+        auto& event = channel.back();
 
         auto data = static_cast<TranslateEventData*>(event.data);
         data->positions.push_back(input.absolute);
@@ -139,17 +141,18 @@ static void RotateTool() {
         }
 
         // Write Sequentity data..
-        auto& channel = Registry.get_or_assign<Sequentity::Channel>(entity);
-        channel.push_back(event);
+        auto& track = Registry.get_or_assign<Sequentity::Track>(entity);
+        track[RotateEvent].push_back(event);
     });
 
-    Registry.view<Name, Active, Input2DRange, Sequentity::Channel>().each([](const auto& name,
+    Registry.view<Name, Active, Input2DRange, Sequentity::Track>().each([](const auto& name,
                                                                              const auto&,
                                                                              const auto& input,
-                                                                             auto& channel) {
-        auto& event = channel.back();
+                                                                             auto& track) {
+        if (!track.count(RotateEvent)) { Warning() << "This should never happen"; return; }
 
-        if (event.type != RotateEvent) return;
+        auto& channel = track[RotateEvent];
+        auto& event = channel.back();
 
         auto data = static_cast<RotateEventData*>(event.data);
         data->orientations.push_back(static_cast<float>(data->offset + input.relative.x()));

@@ -18,6 +18,17 @@ to get a window on screen and to manage relevant data.
 
 - Event:   An individual coloured bar, with a start, length and additional metadata
 - Channel: A vector of Events
+- Track: A vector of Channels
+
+ ___________ __________________________________________________
+|           |                                                  |
+|-----------|--------------------------------------------------|
+| Track     |                                                  |
+|   Channel |  Event Event Event                               |
+|   Channel |  Event Event Event                               |
+|   Channel |  Event Event Event                               |
+|   ...     |  ...                                             |
+|___________|__________________________________________________|
 
 
 ### Usage
@@ -70,14 +81,21 @@ struct Event {
 
     // Map your custom data here, along with an optional type
     void* data { nullptr };
-    EventType type { EventType_Move  };
+    EventType type { EventType_Move };
 };
 
 /**
- * @brief A collection of events for a single channel
+ * @brief A collection of events
  *
  */
 using Channel = std::vector<Event>;
+
+
+/**
+ * @brief A collection of channels
+ *
+ */
+using Track = std::unordered_map<EventType, Channel>;
 
 
 /**
@@ -126,8 +144,8 @@ struct Sequentity {
      * event           |
      *                 
      */
-    const Event* overlapping(const Channel& channel);
-    void each_overlapping(const Channel& channel, OverlappingCallback func);
+    const Event* overlapping(const Track& channel);
+    void each_overlapping(const Track& channel, OverlappingCallback func);
 
     // Settings
     float zoom[2] { 200.0f, 30.0f };
@@ -153,9 +171,7 @@ private:
     TimeChangedCallback _after_time_changed = []() {};
 
     void _sort();
-    void _on_new_channel();
-    // void _on_new_event(entt::entity, entt::registry&);
-    // void _on_new_event_type();
+    void _on_new_track();
 };
 
 
@@ -187,7 +203,7 @@ static struct ListerTheme_ {
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
     
-    float width { 100.0f };
+    float width { 150.0f };
 
 } ListerTheme;
 
@@ -223,34 +239,13 @@ Sequentity::Sequentity(entt::registry& registry) : _registry(registry) {
     // Store state such that it is accessible externally
     registry.ctx_or_set<State>();
 
-    registry.on_construct<Channel>().connect<&Sequentity::_on_new_channel>(*this);
+    registry.on_construct<Track>().connect<&Sequentity::_on_new_track>(*this);
 }
 
 
-void Sequentity::_on_new_channel() {
+void Sequentity::_on_new_track() {
     _sort();
 }
-
-
-// void Sequentity::_on_new_event(const Event& event) {
-//     Debug() << "A new event was created.";
-
-//     auto& event = _registry.get<Event>(entity);
-//     bool is_known = std::find(_known_events.begin(),
-//                               _known_events.end(),
-//                               event.type) != _known_events.end();
-
-//     if (!is_known) {
-//         _known_events.push_back(event.type);
-//         _on_new_event_type();
-//     }
-// }
-
-
-// void Sequentity::_on_new_event_type() {
-//     Debug() << "A new event type was created.";
-//     _sort();
-// }
 
 
 void Sequentity::_sort() {
@@ -261,7 +256,8 @@ void Sequentity::_sort() {
 
 
 void Sequentity::clear() {
-    Registry.reset<Channel>();
+    Registry.reset<Track>();
+    Registry.reset<Track>();
 }
 
 void Sequentity::play() {
@@ -320,25 +316,29 @@ bool contains(const Event& event, int time) {
     );
 }
 
-const Event* Sequentity::overlapping(const Channel& channel) {
+const Event* Sequentity::overlapping(const Track& track) {
     const Event* intersecting { nullptr };
 
-    for (auto& event : channel) {
-        if (contains(event, _registry.ctx<State>().currentTime)) {
-            intersecting = &event;
+    for (auto& [type, channel] : track) {
+        for (auto& event : channel) {
+            if (contains(event, _registry.ctx<State>().currentTime)) {
+                intersecting = &event;
 
-            // Ignore overlapping
-            // TODO: Remove underlapping
-            break;
+                // Ignore overlapping
+                // TODO: Remove underlapping
+                break;
+            }
         }
     }
     return intersecting;
 }
 
 
-void Sequentity::each_overlapping(const Channel& channel, OverlappingCallback func) {
-    for (auto& event : channel) {
-        if (contains(event, _registry.ctx<State>().currentTime)) func(event);
+void Sequentity::each_overlapping(const Track& track, OverlappingCallback func) {
+    for (auto& [type, channel] : track) {
+        for (auto& event : channel) {
+            if (contains(event, _registry.ctx<State>().currentTime)) func(event);
+        }
     }
 }
 
@@ -382,17 +382,17 @@ void Sequentity::draw(bool* p_open) {
         /**
          * @brief Sequentity divided into 4 panels
          *
-         *          ___________________________
-         *         |       |                   |
-         *   Cross |   X   |        B          | Timeline
-         *         |_______|___________________|
-         *         |       |                   |
-         *         |       |                   |
-         *         |       |                   |
-         *  Lister |   A   |        C          | Editor
-         *         |       |                   |
-         *         |       |                   |
-         *         |_______|___________________|
+         *          _________________________________________________
+         *         |       |                                         |
+         *   Cross |   X   |                  B                      | Timeline
+         *         |_______|_________________________________________|
+         *         |       |                                         |
+         *         |       |                                         |
+         *         |       |                                         |
+         *  Lister |   A   |                  C                      | Editor
+         *         |       |                                         |
+         *         |       |                                         |
+         *         |_______|_________________________________________|
          *
          */
 
@@ -573,7 +573,6 @@ void Sequentity::draw(bool* p_open) {
 
         /**
          * @brief Visualise current time
-         *
          *         __
          *        |  |
          *  _______\/___________________________________________________
@@ -582,10 +581,6 @@ void Sequentity::draw(bool* p_open) {
          *         |
          *         |
          *         |
-         *         |
-         *         |
-         *         |
-         *
          *
          */
         auto drawCurrentTime = [&]() {
@@ -700,90 +695,104 @@ void Sequentity::draw(bool* p_open) {
                 return true;
             };
 
-            _registry.view<Index, Name, Channel>().each<Index>([&](auto entity, const auto, const auto& name, auto& channel) {
-                auto& types = _registry.get_or_assign<std::vector<EventType>>(entity);
+            _registry.view<Index, Name, Track>().each<Index>([&](auto entity, const auto, const auto& name, auto& track) {
+                int typeCount { 0 };
 
-                unsigned int count { 0 };
+                // Draw channel header
+                ImVec2 corner { C.x, C.y + yoffset + scroll[1] };
+                ImVec2 size { windowSize.x, zoom[1] };
 
-                for (auto& event : channel) {
-                    static int initialTime { 0 };
-                    int startTime = event.time;
-                    int endTime = startTime + event.length;
+                painter->AddRectFilled(
+                    corner,
+                    corner + size,
+                    ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+                );
 
-                    float xMin = static_cast<float>(startTime) * zoom_ / stride_;
-                    float xMax = static_cast<float>(endTime) * zoom_ / stride_;
-                    float yMin = yoffset;
-                    float yMax = yMin + zoom[1];
+                yoffset += size.y;
 
-                    xMin += C.x + scroll[0];
-                    xMax += C.x + scroll[0];
-                    yMin += C.y + scroll[1];
-                    yMax += C.y + scroll[1];
+                // Give each event a unique ImGui ID
+                unsigned int imid { 0 };
+                for (auto& [type, channel] : track) {
+                    for (auto& event : channel) {
+                        int startTime = event.time;
+                        int endTime = startTime + event.length;
 
-                    ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
+                        float offset = zoom[1] * typeCount;
+                        float xMin = static_cast<float>(startTime) * zoom_ / stride_;
+                        float xMax = static_cast<float>(endTime) * zoom_ / stride_;
+                        float yMin = yoffset + offset;
+                        float yMax = yMin + zoom[1];
 
-                    std::string label { "##event" };
-                    label += name.text;
-                    label += std::to_string(count);
+                        xMin += C.x + scroll[0];
+                        xMax += C.x + scroll[0];
+                        yMin += C.y + scroll[1];
+                        yMax += C.y + scroll[1];
 
-                    ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), zoom[1]};
-                    ImGui::InvisibleButton(label.c_str(), size);
+                        ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
 
-                    float thickness = 0.0f;
-                    ImVec4 currentFill = event.color.fill;
+                        std::string label { "##event" };
+                        label += name.text;
+                        label += std::to_string(imid);
 
-                    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-                        thickness = 3.0f;
-                        currentFill = event.color.fill * 1.1f;
-                    }
+                        ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), zoom[1]};
+                        ImGui::InvisibleButton(label.c_str(), size);
 
-                    if (ImGui::IsItemActivated()) {
-                        initialTime = startTime;
-                    }
+                        float thickness = 0.0f;
+                        ImVec4 currentFill = event.color.fill;
 
-                    // User Input
-                    // TODO: Move this out of the drawing code
-                    if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
-                        float delta = ImGui::GetMouseDragDelta().x;
-                        event.time = initialTime + static_cast<int>(delta / (zoom_ / stride_));
-                    }
-
-                    const int shadow = 2;
-                    painter->AddRectFilled(
-                        { xMin + shadow, yMin + shadow },
-                        { xMax + shadow, yMax + shadow - 1 },
-                        ImColor::HSV(0.0f, 0.0f, 0.0f, 0.3f), EditorTheme.radius
-                    );
-
-                    painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, ImColor(currentFill), EditorTheme.radius);
-
-                    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-                        painter->AddRect(
-                            { xMin + (thickness - 1) / 2, yMin + (thickness - 1) / 2 },
-                            { xMax - (thickness - 1) / 2, yMax - (thickness - 1) / 2 - 1 },
-                            ImColor::HSV(0.15f, 0.7f, 1.0f), EditorTheme.radius, ImDrawCornerFlags_All, thickness
-                        );
-                    }
-                    else {
-                        painter->AddRect(
-                            { xMin + thickness, yMin + thickness },
-                            { xMax - thickness, yMax - thickness - 1 },
-                            ImColor(event.color.stroke), EditorTheme.radius
-                        );
-                    }
-
-                    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-                        painter->AddText(ImVec2{ xMin + 5.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(startTime).c_str());
-                        
-                        if (event.length > 20.0f) {
-                            painter->AddText(ImVec2{ xMin + event.length * (zoom_ / stride_) - 20.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(event.length).c_str());
+                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                            thickness = 3.0f;
+                            currentFill = event.color.fill * 1.1f;
                         }
+
+                        // User Input
+                        // TODO: Move this out of the drawing code
+                        static int initialTime { 0 };
+                        if (ImGui::IsItemActivated()) initialTime = startTime;
+                        if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
+                            float delta = ImGui::GetMouseDragDelta().x;
+                            event.time = initialTime + static_cast<int>(delta / (zoom_ / stride_));
+                        }
+
+                        const int shadow = 2;
+                        painter->AddRectFilled(
+                            { xMin + shadow, yMin + shadow },
+                            { xMax + shadow, yMax + shadow - 1 },
+                            ImColor::HSV(0.0f, 0.0f, 0.0f, 0.3f), EditorTheme.radius
+                        );
+
+                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, ImColor(currentFill), EditorTheme.radius);
+
+                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                            painter->AddRect(
+                                { xMin + (thickness - 1) / 2, yMin + (thickness - 1) / 2 },
+                                { xMax - (thickness - 1) / 2, yMax - (thickness - 1) / 2 - 1 },
+                                ImColor::HSV(0.15f, 0.7f, 1.0f), EditorTheme.radius, ImDrawCornerFlags_All, thickness
+                            );
+                        }
+                        else {
+                            painter->AddRect(
+                                { xMin + thickness, yMin + thickness },
+                                { xMax - thickness, yMax - thickness - 1 },
+                                ImColor(event.color.stroke), EditorTheme.radius
+                            );
+                        }
+
+                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                            painter->AddText(ImVec2{ xMin + 5.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(startTime).c_str());
+                            
+                            if (event.length > 20.0f) {
+                                painter->AddText(ImVec2{ xMin + event.length * (zoom_ / stride_) - 20.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(event.length).c_str());
+                            }
+                        }
+
+                        imid++;
                     }
 
-                    count++;
+                    typeCount += 1;
                 }
 
-                yoffset += zoom[1];
+                yoffset += zoom[1] * track.size();
             });
         };
 
@@ -792,10 +801,16 @@ void Sequentity::draw(bool* p_open) {
          *
          *  ______________
          * |              |
-         * | Channel A    |
-         * | Channel B    |
-         * | Channel C    |
-         * | Channel D    |
+         * | chan A       |
+         * |  |-o type 1  |
+         * |  |-o type 2  |
+         * | chan B       |
+         * |  |-o type 1  |
+         * | chan C       |
+         * |  |-o type 1  |
+         * |  |-o type 2  |
+         * |  |-o type 3  |
+         * | chan D       |
          * | ...          |
          * |              |
          * |______________|
@@ -803,10 +818,11 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawLister = [&]() {
+            float xoffset = 0;
             float yoffset = 0;
 
-            _registry.view<Index, Name, Channel>().each<Index>([&](const auto&, const auto& name, auto& channel) {
-                float xMin = 0.0f;
+            _registry.view<Index, Name, Track>().each<Index>([&](const auto&, const auto& name, auto& track) {
+                float xMin = xoffset;
                 float xMax = ListerTheme.width;
                 float yMin = yoffset;
                 float yMax = 0.0f;
@@ -816,15 +832,38 @@ void Sequentity::draw(bool* p_open) {
                 yMin += A.y + scroll[1];
                 yMax += A.y + scroll[1];
 
-                ImGuiSelectableFlags flags = 0;
-                auto topLeftGlobal = ImVec2{ xMin, yMin };
-                auto topLeftLocal = topLeftGlobal - ImGui::GetWindowPos();
-
+                const auto corner = ImVec2{ xMin, yMin };
                 const auto padding = 5.0f;
                 const auto textSize = ImGui::CalcTextSize(name.text);
-                painter->AddText(topLeftGlobal + ImVec2{ ListerTheme.width - textSize.x - padding, zoom[1] / 2.0f - textSize.y / 2.0f }, ImColor(ListerTheme.text), name.text);
+                const auto pos = ImVec2{
+                    ListerTheme.width - textSize.x - padding,
+                    zoom[1] / 2.0f - textSize.y / 2.0f
+                };
 
-                yoffset += zoom[1];
+                // Draw channel header
+                //  _________________________________________
+                // |_________________________________________|
+                //
+                painter->AddText(corner + pos, ImColor(ListerTheme.text), name.text);
+
+                // Draw children
+                //
+                // |
+                // |-- child
+                // |-- child
+                // |__ child
+                //
+                int childoffset = track.size();
+                // for (auto& [type, channel] : track) {
+                //     childoffset += 1;
+
+                    // for (const auto& event : channel) {
+                    //     int offset = type;
+                    //     childoffset = std::max(childoffset, offset);
+                    // }
+                // }
+
+                yoffset += zoom[1] + childoffset * zoom[1];
             });
         };
 
