@@ -70,8 +70,8 @@ private:
 
     bool _running { true };
 
-    Tool _activeTool { ToolType::Select, SelectTool };
-    Tool _previousTool { ToolType::Select, SelectTool };
+    Tool _activeTool { ToolType::Translate, TranslateTool };
+    Tool _previousTool { ToolType::Translate, TranslateTool };
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -149,7 +149,7 @@ void Application::setup() {
     Registry.assign<Name>(red, "Red Rectangle");
     Registry.assign<Index>(red, 1);
     Registry.assign<Size>(red, Vector2i{ 100, 100 });
-    Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f), ImColor::HSV(0.0f, 0.75f, 0.1f));
+    Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f));
     Registry.assign<Orientation>(red, 0.0_degf);
     Registry.assign<Position>(red, Vector2i{ 300, 50 + 50 });
     Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 + 50 });
@@ -157,7 +157,7 @@ void Application::setup() {
     Registry.assign<Name>(green, "Green Rectangle");
     Registry.assign<Index>(green, 2);
     Registry.assign<Size>(green, Vector2i{ 100, 100 });
-    Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f), ImColor::HSV(0.33f, 0.75f, 0.1f));
+    Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f));
     Registry.assign<Orientation>(green, 0.0_degf);
     Registry.assign<Position>(green, Vector2i{ 500, 50 + 50 });
     Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 + 50 });
@@ -165,7 +165,7 @@ void Application::setup() {
     Registry.assign<Name>(blue, "Blue Rectangle");
     Registry.assign<Index>(blue, 3);
     Registry.assign<Size>(blue, Vector2i{ 100, 100 });
-    Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f), ImColor::HSV(0.55f, 0.75f, 0.1f));
+    Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f));
     Registry.assign<Orientation>(blue, 0.0_degf);
     Registry.assign<Position>(blue, Vector2i{ 700, 50 + 50 });
     Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 + 50 });
@@ -173,7 +173,7 @@ void Application::setup() {
     Registry.assign<Name>(purple, "Purple Rectangle");
     Registry.assign<Index>(purple, 4);
     Registry.assign<Size>(purple, Vector2i{ 80, 100 });
-    Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f), ImColor::HSV(0.45f, 0.75f, 0.1f));
+    Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f));
     Registry.assign<Orientation>(purple, 0.0_degf);
     Registry.assign<Position>(purple, Vector2i{ 350, 200 + 50 });
     Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 + 50 });
@@ -181,7 +181,7 @@ void Application::setup() {
     Registry.assign<Name>(gray, "Gray Rectangle");
     Registry.assign<Index>(gray, 5);
     Registry.assign<Size>(gray, Vector2i{ 80, 40 });
-    Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f), ImColor::HSV(0.55f, 0.0f, 0.1f));
+    Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
     Registry.assign<Position>(gray, Vector2i{ 550, 200 + 50 });
     Registry.assign<InitialPosition>(gray, Vector2i{ 550, 200 + 50 });
@@ -365,10 +365,10 @@ void Application::drawTransport() {
         }
 
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("##zoom", &sqstate.zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
+        ImGui::SliderFloat("##zoom", &sqstate.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("Zoom", &sqstate.zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Scroll", sqstate.scroll);
+        ImGui::SliderFloat("Zoom", &sqstate.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
+        ImGui::DragFloat2("Scroll", sqstate.target_scroll);
         ImGui::SliderInt("Stride", &sqstate.stride, 1, 5);
     }
     ImGui::End();
@@ -446,7 +446,7 @@ void Application::drawScene() {
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2((float)position.x(), (float)position.y());
             auto imangle = static_cast<float>(orientation);
-            auto imcolor = ImColor(color.fill);
+            auto imcolor = ImColor(color);
 
             auto time = sqstate.currentTime + (sqstate.playing ? 1 : 0);
             SmartButton(name.text, impos, imsize, imangle, imcolor);
@@ -472,7 +472,7 @@ void Application::drawScene() {
             if (auto event = _sequentity.overlapping(track)) {
                 auto& data = *static_cast<TranslateEventData*>(event->data);
                 auto impos = ImVec2(Vector2(position + data.offset));
-                Cursor(impos, color.fill);
+                Cursor(impos, color);
             }
         });
     }

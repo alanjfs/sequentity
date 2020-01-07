@@ -74,10 +74,15 @@ struct Event {
      */
     int crop[2] { 0, 0 };
 
-    struct Color {
-        ImVec4 stroke { ImColor::HSV(0.0f, 0.0f, 1.0f) };
-        ImVec4 fill { ImColor::HSV(0.0f, 0.0f, 0.5f) };
-    } color;
+    /* Whether or not to consider this event */
+    bool enabled { true };
+
+    bool removed { false };
+
+    /* Extend or reduce the length of an event */
+    float scale { 1.0f };
+
+    ImVec4 color { ImColor::HSV(0.0f, 0.0f, 1.0f) };
 
     // Map your custom data here, along with an optional type
     void* data { nullptr };
@@ -124,6 +129,10 @@ struct State {
     float zoom[2] { 200.0f, 30.0f };
     float scroll[2] { 8.0f, 8.0f };
     int stride { 3 };
+
+    // Transitions
+    float target_zoom[2] { 200.0f, 30.0f };
+    float target_scroll[2] { 8.0f, 8.0f };
 };
 
 /**
@@ -195,6 +204,7 @@ static struct GlobalTheme_ {
     ImVec4 shadow  { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
     float borderWidth { 2.0f };
+    float trackHeight { 25.0f };
 
 } GlobalTheme;
 
@@ -217,6 +227,9 @@ static struct TimelineTheme_ {
     ImVec4 text        { ImColor::HSV(0.0f, 0.0f, 0.850f) };
     ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.322f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
+    ImVec4 startTime   { ImColor::HSV(0.33f, 0.0f, 0.50f) };
+    ImVec4 currentTime { ImColor::HSV(0.57f, 0.62f, 0.99f) };
+    ImVec4 endTime     { ImColor::HSV(0.0f, 0.0f, 0.40f) };
 
     float height { 40.0f };
 
@@ -226,12 +239,19 @@ static struct TimelineTheme_ {
 static struct EditorTheme_ {
     ImVec4 background  { ImColor::HSV(0.0f, 0.00f, 0.651f) };
     ImVec4 alternate   { ImColor::HSV(0.0f, 0.00f, 0.0f, 0.02f) };
-    ImVec4 text        { ImColor::HSV(0.0f, 0.00f, 0.200f) };
+    ImVec4 text        { ImColor::HSV(0.0f, 0.00f, 0.950f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.00f, 0.600f) };
     ImVec4 dark        { ImColor::HSV(0.0f, 0.00f, 0.498f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
     ImVec4 accentLight { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
     ImVec4 accentDark  { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
+    ImVec4 selection   { ImColor::HSV(0.15f, 0.7f, 1.0f) };
+    ImVec4 outline     { ImColor::HSV(0.0f, 0.0f, 0.1f) };
+    ImVec4 track       { ImColor::HSV(0.0f, 0.0f, 0.6f) };
+
+    ImVec4 startTime   { ImColor::HSV(0.33f, 0.0f, 0.25f) };
+    ImVec4 currentTime { ImColor::HSV(0.6f, 0.5f, 0.5f) };
+    ImVec4 endTime     { ImColor::HSV(0.0f, 0.0f, 0.25f) };
     
     float radius { 0.0f };
 
@@ -355,6 +375,10 @@ void Sequentity::drawThemeEditor(bool* p_open) {
             ImGui::ColorEdit4("text", &TimelineTheme.text.x);
             ImGui::ColorEdit4("dark", &TimelineTheme.dark.x);
             ImGui::ColorEdit4("mid", &TimelineTheme.mid.x);
+            ImGui::ColorEdit4("startTime", &TimelineTheme.startTime.x);
+            ImGui::ColorEdit4("currentTime", &TimelineTheme.currentTime.x);
+            ImGui::ColorEdit4("endTime", &TimelineTheme.endTime.x);
+            ImGui::DragFloat("height", &TimelineTheme.height);
         }
 
         if (ImGui::CollapsingHeader("Editor")) {
@@ -364,6 +388,18 @@ void Sequentity::drawThemeEditor(bool* p_open) {
             ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.x);
             ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.x);
             ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.x);
+
+            ImGui::ColorEdit4("startTime##editor", &EditorTheme.startTime.x);
+            ImGui::ColorEdit4("currentTime##editor", &EditorTheme.currentTime.x);
+            ImGui::ColorEdit4("endTime##editor", &EditorTheme.endTime.x);
+        }
+
+        if (ImGui::CollapsingHeader("Lister")) {
+            ImGui::ColorEdit4("background##lister", &ListerTheme.background.x);
+            ImGui::ColorEdit4("text##lister", &ListerTheme.text.x);
+            ImGui::ColorEdit4("dark##lister", &ListerTheme.dark.x);
+            ImGui::ColorEdit4("mid##lister", &ListerTheme.mid.x);
+            ImGui::DragFloat("width##lister", &ListerTheme.width);
         }
     }
     ImGui::End();
@@ -374,15 +410,19 @@ void Sequentity::draw(bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
+    auto& state = _registry.ctx<State>();
+    auto speed = 0.25f;
+    state.scroll[0] += (state.target_scroll[0] - state.scroll[0]) * speed;
+    state.scroll[1] += (state.target_scroll[1] - state.scroll[1]) * speed;
+    state.zoom[0] += (state.target_zoom[0] - state.zoom[0]) * speed;
+    state.zoom[1] += (state.target_zoom[1] - state.zoom[1]) * speed;
+
     ImGui::Begin("Editor", p_open, windowFlags);
     {
-        auto& state = _registry.ctx<State>();
         auto* painter = ImGui::GetWindowDrawList();
-        const auto& style = ImGui::GetStyle();
         auto titlebarHeight = 24.0f; // TODO: Find an exact value for this
         ImVec2 windowSize = ImGui::GetWindowSize();
         ImVec2 windowPos = ImGui::GetWindowPos() + ImVec2{ 0.0f, titlebarHeight };
-        float lineHeight = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
 
         /**
          * @brief Sequentity divided into 4 panels
@@ -410,6 +450,12 @@ void Sequentity::draw(bool* p_open) {
         int stride_ = state.stride * 5;  // How many frames to skip drawing
         int minTime = state.range.x() / stride_;
         int maxTime = state.range.y() / stride_;
+
+        // TODO: What is this value?
+        auto multiplier = zoom_ / stride_;
+
+        auto time_to_px = [&multiplier](int time)  -> float { return time * multiplier; };
+        auto px_to_time = [&multiplier](float px)  -> int   { return static_cast<int>(px / multiplier); };
 
         auto drawCrossBackground = [&]() {
             painter->AddRectFilled(
@@ -449,18 +495,6 @@ void Sequentity::draw(bool* p_open) {
                 A + ImVec2{ ListerTheme.width, windowSize.y },
                 ImColor(ListerTheme.background)
             );
-
-            // Stipple
-            bool isOdd { true };
-            for (float y = 0; y < windowSize.y; y += state.zoom[1]) {
-                isOdd ^= true;
-
-                if (isOdd) painter->AddRectFilled(
-                    A + ImVec2{ 0, y + state.scroll[1] },
-                    A + ImVec2{ ListerTheme.width, y + state.scroll[1] + state.zoom[1] - 1 },
-                    ImColor(ListerTheme.alternate)
-                );
-            }
 
             // Border
             painter->AddLine(A + ImVec2{ ListerTheme.width, 0.0f },
@@ -538,20 +572,6 @@ void Sequentity::draw(bool* p_open) {
             }
         };
 
-        auto drawHorizontalBar = [&]() {
-            float xMin = 0.0f;
-            float xMax = windowSize.x;
-            float yMin = TimelineTheme.height;
-            float yMax = TimelineTheme.height;
-
-            xMin += B.x + state.scroll[0];
-            xMax += B.x + state.scroll[0];
-            yMin += B.y;
-            yMax += B.y;
-
-            painter->AddLine(ImVec2(xMin, yMin), ImVec2(xMax, yMax), ImColor(EditorTheme.dark), 1.0f);
-        };
-
         auto drawVerticalGrid = [&]() {
             for (int time = minTime; time < maxTime + 1; time++) {
                 float xMin = time * zoom_;
@@ -588,8 +608,9 @@ void Sequentity::draw(bool* p_open) {
          *         |
          *
          */
-        auto drawCurrentTime = [&]() {
-            auto xMin = state.currentTime * zoom_ / stride_;
+        unsigned int indicator_count { 0 };
+        auto drawTimeIndicator = [&](int& time, ImVec4 cursor_color, ImVec4 line_color) -> bool {
+            auto xMin = time * zoom_ / stride_;
             auto xMax = 0.0f;
             auto yMin = TimelineTheme.height;
             auto yMax = windowSize.y;
@@ -599,7 +620,7 @@ void Sequentity::draw(bool* p_open) {
             yMin += B.y;
             yMax += B.y;
 
-            painter->AddLine(ImVec2{ xMin, yMin }, ImVec2{ xMin, yMax }, ImColor(EditorTheme.accent), 2.0f);
+            painter->AddLine(ImVec2{ xMin, yMin }, ImVec2{ xMin, yMax }, ImColor(line_color), 2.0f);
 
             /**
              *  Cursor
@@ -608,16 +629,35 @@ void Sequentity::draw(bool* p_open) {
              *    \/
              *
              */
-            auto width = 10.0f;
-            auto height = 20.0f;
+            ImVec2 size { 10.0f, 20.0f };
             auto topPos = ImVec2{ xMin, yMin };
+
+            std::string id { "##indicator" };
+            id += std::to_string(indicator_count);
+
+            ImGui::SetCursorPos(topPos - ImVec2{ size.x, size.y } - ImGui::GetWindowPos());
+            ImGui::InvisibleButton(id.c_str(), size * 2.0f);
+
+            static unsigned int initial_time { 0 };
+            if (ImGui::IsItemActivated()) {
+                initial_time = time;
+            }
+
+            ImVec4 color = cursor_color;
+            if (ImGui::IsItemHovered()) {
+                color = color * 1.2f;
+            }
+
+            if (ImGui::IsItemActive()) {
+                time = initial_time + static_cast<int>(ImGui::GetMouseDragDelta().x / (zoom_ / stride_));
+            }
 
             ImVec2 points[5] = {
                 topPos,
-                topPos - ImVec2{ -width, height / 2.0f },
-                topPos - ImVec2{ -width, height },
-                topPos - ImVec2{ width, height },
-                topPos - ImVec2{ width, height / 2.0f }
+                topPos - ImVec2{ -size.x, size.y / 2.0f },
+                topPos - ImVec2{ -size.x, size.y },
+                topPos - ImVec2{ size.x, size.y },
+                topPos - ImVec2{ size.x, size.y / 2.0f }
             };
 
             ImVec2 shadow1[5];
@@ -627,14 +667,18 @@ void Sequentity::draw(bool* p_open) {
 
             painter->AddConvexPolyFilled(shadow1, 5, ImColor(GlobalTheme.shadow));
             painter->AddConvexPolyFilled(shadow2, 5, ImColor(GlobalTheme.shadow));
-            painter->AddConvexPolyFilled(points, 5, ImColor(EditorTheme.accent));
-            painter->AddPolyline(points, 5, ImColor(EditorTheme.accentDark), true, 1.0f);
-            painter->AddLine(topPos - ImVec2{  2.0f, height * 0.3f },
-                             topPos - ImVec2{  2.0f, height * 0.8f },
+            painter->AddConvexPolyFilled(points, 5, ImColor(color));
+            painter->AddPolyline(points, 5, ImColor(color * 1.25f), true, 1.0f);
+            painter->AddLine(topPos - ImVec2{  2.0f, size.y * 0.3f },
+                             topPos - ImVec2{  2.0f, size.y * 0.8f },
                              ImColor(EditorTheme.accentDark));
-            painter->AddLine(topPos - ImVec2{ -2.0f, height * 0.3f },
-                             topPos - ImVec2{ -2.0f, height * 0.8f },
+            painter->AddLine(topPos - ImVec2{ -2.0f, size.y * 0.3f },
+                             topPos - ImVec2{ -2.0f, size.y * 0.8f },
                              ImColor(EditorTheme.accentDark));
+
+            indicator_count++;
+
+            return false;
         };
 
         /**
@@ -685,120 +729,165 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawEvents = [&]() {
-            float yoffset { 0.0f };
-
-            auto is_known = [&](EventType type, std::vector<EventType>& known_events) -> bool {
-                bool found = std::find(known_events.begin(),
-                                       known_events.end(),
-                                       type) != known_events.end();
-
-                if (!found) {
-                    known_events.push_back(type);
-                    return false;
-                }
-
-                return true;
-            };
+            ImVec2 cursor { C.x + state.scroll[0], C.y + state.scroll[1] };
 
             _registry.view<Index, Name, Track>().each<Index>([&](auto entity, const auto, const auto& name, auto& track) {
-                int typeCount { 0 };
 
-                // Draw channel header
-                ImVec2 corner { C.x, C.y + yoffset + state.scroll[1] };
-                ImVec2 size { windowSize.x, state.zoom[1] };
+                // Draw track header, a separator-like empty space
+                // 
+                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+                // |                                         |
+                // |_________________________________________|
+                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+                //
+                static ImVec2 button_size { 15.0f, 15.0f };
+                static ImVec2 padding { 10.0f, 2.0f };
+                static ImVec2 center { 0.0f, GlobalTheme.trackHeight / 2.0f };
+
+                ImVec2 size { windowSize.x, GlobalTheme.trackHeight };
 
                 painter->AddRectFilled(
-                    corner,
-                    corner + size,
-                    ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+                    cursor,
+                    cursor + size,
+                    ImColor(EditorTheme.background)
                 );
 
-                yoffset += size.y;
+                painter->AddRect(
+                    cursor,
+                    cursor + size,
+                    ImColor(EditorTheme.mid)
+                );
+
+                cursor.y += size.y;
 
                 // Give each event a unique ImGui ID
-                unsigned int imid { 0 };
+                unsigned int type_count { 0 };
+                unsigned int event_count { 0 };
+
+                // Draw events
+                //            ________
+                //           |________|
+                //  _________________________
+                // |_________________________|
+                //     ________      ____________________________
+                //    |________|    |____________________________|
+                //
                 for (auto& [type, channel] : track) {
                     for (auto& event : channel.events) {
-                        int startTime = event.time;
-                        int endTime = startTime + event.length;
-
-                        float offset = state.zoom[1] * typeCount;
-                        float xMin = static_cast<float>(startTime) * zoom_ / stride_;
-                        float xMax = static_cast<float>(endTime) * zoom_ / stride_;
-                        float yMin = yoffset + offset;
-                        float yMax = yMin + state.zoom[1];
-
-                        xMin += C.x + state.scroll[0];
-                        xMax += C.x + state.scroll[0];
-                        yMin += C.y + state.scroll[1];
-                        yMax += C.y + state.scroll[1];
-
-                        ImGui::SetCursorPos(ImVec2{ xMin, yMin } - ImGui::GetWindowPos());
+                        ImVec2 pos { time_to_px(event.time), 0.0f };
+                        ImVec2 size { time_to_px(event.length), state.zoom[1] };
 
                         std::string label { "##event" };
                         label += name.text;
-                        label += std::to_string(imid);
-
-                        ImVec2 size { static_cast<float>(event.length * zoom_ / stride_), state.zoom[1]};
+                        label += std::to_string(event_count);
+                        ImGui::SetCursorPos(cursor + pos - ImGui::GetWindowPos());
                         ImGui::InvisibleButton(label.c_str(), size);
 
                         float thickness = 0.0f;
-                        ImVec4 currentFill = event.color.fill;
+                        ImVec4 color = event.color;
 
-                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                        if (!event.enabled) {
+                            color = ImColor::HSV(0.0f, 0.0f, 0.5f);
+                        }
+
+                        else if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
                             thickness = 3.0f;
-                            currentFill = event.color.fill * 1.1f;
                         }
 
                         // User Input
-                        // TODO: Move this out of the drawing code
                         static int initialTime { 0 };
-                        if (ImGui::IsItemActivated()) initialTime = startTime;
+                        if (ImGui::IsItemActivated()) initialTime = event.time;
                         if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
                             float delta = ImGui::GetMouseDragDelta().x;
-                            event.time = initialTime + static_cast<int>(delta / (zoom_ / stride_));
+                            event.time = initialTime + px_to_time(delta);
+                            event.removed = (
+                                event.time > state.range.y() ||
+                                event.time + event.length < state.range.x()
+                            );
+
+                            event.enabled = !event.removed;
                         }
 
                         const int shadow = 2;
                         painter->AddRectFilled(
-                            { xMin + shadow, yMin + shadow },
-                            { xMax + shadow, yMax + shadow - 1 },
+                            cursor + pos + shadow,
+                            cursor + pos + size + shadow,
                             ImColor::HSV(0.0f, 0.0f, 0.0f, 0.3f), EditorTheme.radius
                         );
 
-                        painter->AddRectFilled({ xMin, yMin }, { xMax, yMax - 1 }, ImColor(currentFill), EditorTheme.radius);
+                        painter->AddRectFilled(
+                            cursor + pos,
+                            cursor + pos + size,
+                            ImColor(color), EditorTheme.radius
+                        );
 
                         if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
                             painter->AddRect(
-                                { xMin + (thickness - 1) / 2, yMin + (thickness - 1) / 2 },
-                                { xMax - (thickness - 1) / 2, yMax - (thickness - 1) / 2 - 1 },
-                                ImColor::HSV(0.15f, 0.7f, 1.0f), EditorTheme.radius, ImDrawCornerFlags_All, thickness
+                                cursor + pos        + thickness * 0.25f,
+                                cursor + pos + size - thickness * 0.25f,
+                                ImColor(EditorTheme.selection), EditorTheme.radius, ImDrawCornerFlags_All, thickness
                             );
                         }
                         else {
                             painter->AddRect(
-                                { xMin + thickness, yMin + thickness },
-                                { xMax - thickness, yMax - thickness - 1 },
-                                ImColor(event.color.stroke), EditorTheme.radius
+                                cursor + pos        + thickness,
+                                cursor + pos + size - thickness,
+                                ImColor(EditorTheme.outline), EditorTheme.radius
                             );
                         }
 
-                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-                            painter->AddText(ImVec2{ xMin + 5.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(startTime).c_str());
-                            
-                            if (event.length > 20.0f) {
-                                painter->AddText(ImVec2{ xMin + event.length * (zoom_ / stride_) - 20.0f, yMin }, ImColor(1.0f, 1.0f, 1.0f, 1.0f), std::to_string(event.length).c_str());
+                        if (event.enabled) {
+                            if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                                if (event.length > 10.0f) {
+                                    painter->AddText(
+                                        cursor + pos + ImVec2{ 3.0f, 0.0f },
+                                        ImColor(EditorTheme.text),
+                                        std::to_string(event.time).c_str()
+                                    );
+                                }
+                                
+                                if (event.length > 30.0f) {
+                                    painter->AddText(
+                                        cursor + pos + ImVec2{ size.x - 20.0f, 0.0f },
+                                        ImColor(EditorTheme.text),
+                                        std::to_string(event.length).c_str()
+                                    );
+                                }
                             }
                         }
 
-                        imid++;
+                        event_count++;
                     }
 
-                    typeCount += 1;
+                    // Next event type
+                    cursor.y += state.zoom[1];
                 }
 
-                yoffset += state.zoom[1] * track.size();
+                // Next track
+                cursor.y += padding.y;
             });
+        };
+
+        auto drawRange = [&]() {
+            ImVec2 cursor { C.x, C.y };
+            ImVec2 range_cursor_start { state.range.x() * zoom_ / stride_ + state.scroll[0], TimelineTheme.height };
+            ImVec2 range_cursor_end { state.range.y() * zoom_ / stride_ + state.scroll[0], TimelineTheme.height };
+
+            painter->AddRectFilled(
+                cursor + ImVec2{ 0.0f, 0.0f },
+                cursor + ImVec2{ range_cursor_start.x, windowSize.y },
+                ImColor(0.0f, 0.0f, 0.0f, 0.3f)
+            );
+
+            painter->AddRectFilled(
+                cursor + ImVec2{ range_cursor_end.x, 0.0f },
+                cursor + ImVec2{ windowSize.x, windowSize.y },
+                ImColor(0.0f, 0.0f, 0.0f, 0.3f)
+            );
         };
 
         /**
@@ -823,21 +912,10 @@ void Sequentity::draw(bool* p_open) {
          *
          */
         auto drawLister = [&]() {
-            float yoffset = 0;
+            auto cursor = ImVec2{ A.x, A.y + state.scroll[1] };
+            const auto padding = 5.0f;
 
             _registry.view<Index, Name, Track>().each<Index>([&](const auto&, const auto& name, auto& track) {
-                float xMin = 0.0f;
-                float xMax = ListerTheme.width;
-                float yMin = yoffset;
-                float yMax = 0.0f;
-
-                xMin += A.x;
-                xMax += A.x;
-                yMin += A.y + state.scroll[1];
-                yMax += A.y + state.scroll[1];
-
-                static auto padding = 5.0f;
-                const auto corner = ImVec2{ xMin, yMin };
 
                 // Draw channel header
                 //  _________________________________________
@@ -845,11 +923,21 @@ void Sequentity::draw(bool* p_open) {
                 //
                 const auto textSize = ImGui::CalcTextSize(name.text);
                 const auto pos = ImVec2{
-                    padding,
-                    state.zoom[1] / 2.0f - textSize.y / 2.0f
+                    ListerTheme.width - textSize.x - padding,
+                    GlobalTheme.trackHeight / 2.0f - textSize.y / 2.0f
                 };
 
-                painter->AddText(corner + pos, ImColor(ListerTheme.text), name.text);
+                painter->AddRectFilled(
+                    cursor,
+                    cursor + ImVec2{ ListerTheme.width, GlobalTheme.trackHeight },
+                    ImColor(ListerTheme.alternate)
+                );
+
+                painter->AddText(
+                    cursor + pos, ImColor(ListerTheme.text), name.text
+                );
+
+                cursor.y += GlobalTheme.trackHeight;
 
                 // Draw children
                 //
@@ -858,34 +946,40 @@ void Sequentity::draw(bool* p_open) {
                 // |-- child
                 // |__ child
                 //
-                int childoffset { 0 };
                 for (auto& [type, channel] : track) {
-                    const auto textSize = ImGui::CalcTextSize(channel.label);
+                    const auto textSize = ImGui::CalcTextSize(channel.label) * 0.85f;
                     const auto pos = ImVec2{
                         ListerTheme.width - textSize.x - padding,
                         state.zoom[1] / 2.0f - textSize.y / 2.0f
                     };
 
-                    painter->AddText(corner + pos + ImVec2{ 0.0f, (childoffset + 1) * state.zoom[1] },
-                                     ImColor(ListerTheme.text), channel.label);
+                    painter->AddText(
+                        ImGui::GetFont(),
+                        textSize.y,
+                        cursor + pos,
+                        ImColor(ListerTheme.text), channel.label
+                    );
 
-                    childoffset += 1;
+                    cursor.y += state.zoom[1];
                 }
-
-                yoffset += state.zoom[1] + childoffset * state.zoom[1];
             });
         };
 
+        bool hovering_background { true };
         painter->PushClipRect(B + ImVec2{ 1.0f, 0.0f }, ImGui::GetWindowPos() + ImGui::GetWindowSize());
         {
             drawEditorBackground();
-            drawHorizontalGrid();
-            drawHorizontalBar();
             drawVerticalGrid();
             drawEvents();
             drawTimelineBackground();
             drawTimeline();
-            drawCurrentTime();
+            drawRange();
+            drawTimeIndicator(state.range.x(), TimelineTheme.startTime, EditorTheme.startTime);
+            if (ImGui::IsItemHovered()) hovering_background = false;
+            drawTimeIndicator(state.range.y(), TimelineTheme.endTime, EditorTheme.endTime);
+            if (ImGui::IsItemHovered()) hovering_background = false;
+            drawTimeIndicator(state.currentTime, TimelineTheme.currentTime, EditorTheme.currentTime);
+            if (ImGui::IsItemHovered()) hovering_background = false;
         }
         painter->PopClipRect();
 
@@ -896,60 +990,62 @@ void Sequentity::draw(bool* p_open) {
         //
         // User Input
         //
+        if (hovering_background) {
 
-        /** Pan
-         *
-         *        ^
-         *        |
-         *        |
-         *  <-----|----->
-         *        |
-         *        |
-         *        v
-         */
-        ImGui::SetCursorPos({ 0.0f, titlebarHeight });
-        ImGui::InvisibleButton("##mscroll", ImVec2{ ListerTheme.width, TimelineTheme.height });
+            /** Pan
+             *
+             *        ^
+             *        |
+             *        |
+             *  <-----|----->
+             *        |
+             *        |
+             *        v
+             */
+            ImGui::SetCursorPos({ 0.0f, titlebarHeight });
+            ImGui::InvisibleButton("##mscroll", ImVec2{ ListerTheme.width, TimelineTheme.height });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        const bool scrollM = (
-            ImGui::IsItemActive() ||
-            (ImGui::IsWindowFocused() && ImGui::GetIO().KeyAlt && ImGui::GetIO().MouseDown[0])
-        );
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            const bool scrollM = (
+                ImGui::IsItemActive() ||
+                (ImGui::IsWindowFocused() && ImGui::GetIO().KeyAlt && ImGui::GetIO().MouseDown[0])
+            );
 
-        /** Vertical Pan
-         *
-         *
-         *
-         *  <--------------->
-         *
-         *
-         */
-        ImGui::SetCursorPos({ ListerTheme.width, titlebarHeight });
-        ImGui::InvisibleButton("##scroll[0]", ImVec2{ windowSize.x, TimelineTheme.height });
+            /** Vertical Pan
+             *
+             *
+             *
+             *  <--------------->
+             *
+             *
+             */
+            ImGui::SetCursorPos({ ListerTheme.width, titlebarHeight });
+            ImGui::InvisibleButton("##scroll[0]", ImVec2{ windowSize.x, TimelineTheme.height });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-        const bool scrollH = ImGui::IsItemActive();
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            const bool scrollH = ImGui::IsItemActive();
 
-        /** Vertical Pan
-         *
-         *        ^
-         *        |
-         *        |
-         *        |
-         *        v
-         */
-        ImGui::SetCursorPos({ 0.0f, TimelineTheme.height + titlebarHeight });
-        ImGui::InvisibleButton("##scroll[1]", ImVec2{ ListerTheme.width, windowSize.y });
+            /** Vertical Pan
+             *
+             *        ^
+             *        |
+             *        |
+             *        |
+             *        v
+             */
+            ImGui::SetCursorPos({ 0.0f, TimelineTheme.height + titlebarHeight });
+            ImGui::InvisibleButton("##scroll[1]", ImVec2{ ListerTheme.width, windowSize.y });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
-        const bool scrollV = ImGui::IsItemActive();
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+            const bool scrollV = ImGui::IsItemActive();
 
-        if (scrollM) {
-            state.scroll[0] += ImGui::GetIO().MouseDelta.x;
-            state.scroll[1] += ImGui::GetIO().MouseDelta.y;
+            if (scrollM) {
+                state.target_scroll[0] += ImGui::GetIO().MouseDelta.x;
+                state.target_scroll[1] += ImGui::GetIO().MouseDelta.y;
+            }
+            else if (scrollV) state.target_scroll[1] += ImGui::GetIO().MouseDelta.y;
+            else if (scrollH) state.target_scroll[0] += ImGui::GetIO().MouseDelta.x;
         }
-        else if (scrollV) state.scroll[1] += ImGui::GetIO().MouseDelta.y;
-        else if (scrollH) state.scroll[0] += ImGui::GetIO().MouseDelta.x;
     }
     ImGui::End();
 }

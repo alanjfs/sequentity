@@ -88,7 +88,7 @@ static void TranslateTool() {
         Sequentity::Event event; {
             event.time = activated.time + 1;
             event.length = 1;
-            event.color = { color.stroke, color.fill };
+            event.color = color;
 
             // Store reference to our data
             event.type = TranslateEvent;
@@ -104,7 +104,7 @@ static void TranslateTool() {
 
         if (!has_channel) {
             channel.label = "Translate";
-            channel.color = color.fill;
+            channel.color = ImColor::HSV(0.0f, 1.0f, 1.0f);
         }
     });
 
@@ -141,7 +141,7 @@ static void RotateTool() {
         Sequentity::Event event; {
             event.time = activated.time + 1;
             event.length = 1;
-            event.color = { color.stroke, color.fill };
+            event.color = color;
 
             // Store reference to our data
             event.type = RotateEvent;
@@ -157,7 +157,7 @@ static void RotateTool() {
 
         if (!has_channel) {
             channel.label = "Rotate";
-            channel.color = color.fill;
+            channel.color = ImColor::HSV(0.33f, 1.0f, 1.0f);
         }
     });
 

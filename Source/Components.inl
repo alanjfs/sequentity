@@ -1,16 +1,5 @@
 // Components
 
-struct BendollEvent {
-    int time;
-    int length;
-
-    // Angles
-    std::vector<float> data;
-};
-
-struct DragdollEvent {
-};
-
 using Position = Vector2i;
 using Orientation = float;
 
@@ -21,14 +10,9 @@ struct Index {
     int absolute { 0 };
     int relative { 0 };
 };
-struct Selected {};;
-using BendollEvents = std::vector<BendollEvent>;
-using DragdollEvents = std::vector<DragdollEvent>;
+struct Selected {};
 
-struct Color {
-    ImVec4 fill;
-    ImVec4 stroke;
-};
+using Color = ImVec4;
 
 struct Name {
     const char* text;

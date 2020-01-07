@@ -7,6 +7,10 @@ inline ImVec2 operator+(const ImVec2& vec, const float value) {
     return ImVec2{ vec.x + value, vec.y + value };
 }
 
+inline ImVec2 operator-(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x - value, vec.y - value };
+}
+
 inline ImVec2 operator*(const ImVec2& vec, const float value) {
     return ImVec2{ vec.x * value, vec.y * value };
 }
