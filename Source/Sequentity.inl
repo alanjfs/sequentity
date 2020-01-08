@@ -251,7 +251,7 @@ static struct GlobalTheme_ {
     ImVec4 dark         { ImColor::HSV(0.0f, 0.0f, 0.3f) };
     ImVec4 shadow       { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
-    float border_width { 2.0f };
+    float border_width { 1.0f };
     float track_height { 25.0f };
     float transition_speed { 0.2f };
 
@@ -259,10 +259,10 @@ static struct GlobalTheme_ {
 
 
 static struct ListerTheme_ {
-    ImVec4 background  { ImColor::HSV(0.0f, 0.0f, 0.200f) };
+    ImVec4 background  { ImColor::HSV(0.0f, 0.0f, 0.051f) };
     ImVec4 alternate   { ImColor::HSV(0.0f, 0.00f, 1.0f, 0.02f) };
     ImVec4 text        { ImColor::HSV(0.0f, 0.0f, 0.850f) };
-    ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.150f) };
+    ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.100f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
     ImVec4 outline       { ImColor::HSV(0.0f, 0.0f, 0.1f) };
@@ -489,8 +489,9 @@ void Sequentity::draw(bool* p_open) {
     {
         auto* painter = ImGui::GetWindowDrawList();
         auto titlebarHeight = 24.0f; // TODO: Find an exact value for this
-        ImVec2 windowSize = ImGui::GetWindowSize();
-        ImVec2 windowPos = ImGui::GetWindowPos() + ImVec2{ 0.0f, titlebarHeight };
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const ImVec2 windowPos = ImGui::GetWindowPos() + ImVec2{ 0.0f, titlebarHeight };
+        const ImVec2 padding { 7.0f, 2.0f };
 
         /**
          * @brief Sequentity divided into 4 panels
@@ -725,6 +726,7 @@ void Sequentity::draw(bool* p_open) {
 
             ImVec4 color = cursor_color;
             if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
                 color = color * 1.2f;
             }
 
@@ -848,8 +850,6 @@ void Sequentity::draw(bool* p_open) {
 
             _registry.view<Index, Track>().each<Index>([&](const auto, auto& track) {
                 Header(track, cursor);
-
-                static ImVec2 padding { 10.0f, 2.0f };
 
                 // Give each event a unique ImGui ID
                 unsigned int type_count { 0 };
@@ -1035,7 +1035,6 @@ void Sequentity::draw(bool* p_open) {
          */
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
-            const auto padding = 7.0f;
 
             _registry.view<Index, Track>().each<Index>([&](const auto&, auto& track) {
 
@@ -1043,17 +1042,22 @@ void Sequentity::draw(bool* p_open) {
                 //  _________________________________________
                 // |_________________________________________|
                 //
-                static const float border_width = 4.0f;
                 const auto textSize = ImGui::CalcTextSize(track.label);
                 const auto pos = ImVec2{
-                    ListerTheme.width - textSize.x - padding - padding,
+                    ListerTheme.width - textSize.x - padding.x - padding.x,
                     GlobalTheme.track_height / 2.0f - textSize.y / 2.0f
                 };
 
                 painter->AddRectFilled(
                     cursor,
                     cursor + ImVec2{ ListerTheme.width, GlobalTheme.track_height },
-                    ImColor(track.color * 0.6f)
+                    ImColor(ListerTheme.dark)
+                );
+
+                painter->AddRectFilled(
+                    cursor + ImVec2{ ListerTheme.width - 5.0f, 0.0f },
+                    cursor + ImVec2{ ListerTheme.width, GlobalTheme.track_height },
+                    ImColor(track.color)
                 );
 
                 painter->AddText(
@@ -1071,7 +1075,7 @@ void Sequentity::draw(bool* p_open) {
                 for (auto& [type, channel] : track.channels) {
                     static const ImVec2 indicator_size { 9.0f, 9.0f };
                     const ImVec2 indicator_pos = {
-                        ListerTheme.width - indicator_size.x - padding,
+                        ListerTheme.width - indicator_size.x - padding.x,
                         state.zoom[1] * 0.5f - indicator_size.y * 0.5f
                     };
 
@@ -1081,15 +1085,15 @@ void Sequentity::draw(bool* p_open) {
                         ImColor(channel.color)
                     );
 
-                    painter->AddRectFilled(
-                        cursor + indicator_pos + indicator_size.y - border_width,
+                    painter->AddRect(
+                        cursor + indicator_pos,
                         cursor + indicator_pos + indicator_size,
-                        ImColor(channel.color * 0.75f)
+                        ImColor(channel.color * 1.25f)
                     );
 
                     const auto textSize = ImGui::CalcTextSize(channel.label) * 0.85f;
                     const auto pos = ImVec2{
-                        ListerTheme.width - textSize.x - padding - indicator_size.x - padding,
+                        ListerTheme.width - textSize.x - padding.x - indicator_size.x - padding.x,
                         state.zoom[1] * 0.5f - textSize.y * 0.5f
                     };
 
@@ -1100,8 +1104,11 @@ void Sequentity::draw(bool* p_open) {
                         ImColor(ListerTheme.text), channel.label
                     );
 
+                    // Next channel
                     cursor.y += state.zoom[1] + EditorTheme.spacing;
                 }
+                // Next track
+                cursor.y += padding.y;
             });
         };
 

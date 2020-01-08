@@ -35,6 +35,7 @@ Written in C++ with ImGui, Magnum and EnTT.
 - [ ] **UX, Escape** Prevent events from escaping the current range
 - [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
 - [ ] **Stride** There are a few values that work, but make no sense, like `stride`
+- [ ] **Bug, hot-swap tool** Translate something and switch tool without letting go
 - [x] **Refactor, Unify data types** Data types in Sequentity is a mixture of native, Magnum and ImGui.
 - [x] **Smooth Panning and Zooming** Any change to these have a nice smoothing effect
 - [x] **Drag Current Time** You can, but it won't trigger the time-changed callback
@@ -73,7 +74,7 @@ Sequentity::Channel channel; {
 }
 
 Sequentity::Event event; {
-    
+
 }
 
 channel.events.push_back(event);
