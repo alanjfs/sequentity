@@ -51,9 +51,10 @@ Written in C++ with ImGui, Magnum and EnTT.
 
 Unrelated to the sequencer, but to the example implementation.
 
-- **Event, Data and Length** Events don't know about your data. It only knows about length. So to correlate between data and where the current time cursor intersects and event the application assumes that data is a vector of equal length to the length of the event. When you e.g. click and hold, but do not move the mouse, that means a lot of duplicate data is stored.
-- **Tools and Time** Tools currently have no concept of time; which means that regardless of whether you're playing, an event will continue to grow.
-- **Non-entity related tools** Scrubbing affects global time and is currently a tool. However, in order to separate between press and move events, it still utilises the `Activated` and `Active` components like entity-tools. The consequence is that you can only scrub the global timeline when dragging on an entity.
+- **AQ1: Event, Data and Length** Events don't know about your data. But it does have a length. So to correlate between an e.g. `std::vector` and the intersection of time and event the application assumes data and event is of equal length. When you e.g. click and hold, but do not move the mouse, that means a lot of duplicate data is stored.
+- **AQ2: Tools and Time** Tools currently have no concept of time; which means that regardless of whether you're playing, an event will continue to grow.
+- **AQ3: Non-entity related tools** Scrubbing affects global time and is currently a tool. However, in order to separate between press and move events, it still utilises the `Activated` and `Active` components like entity-tools. The consequence is that you can only scrub the global timeline when dragging on an entity.
+- **AQ4: Initial values** Any animatable property has an equivalent "initial" component. E.g. `Position` is also provided by `InitialPosition` component. We use that to reset the `Position` at the start frame. But, we could also have the first value of each event carry an initial value. That way, to reset, we could (1) find the first event of each channel and (2) apply that.
 
 <br>
 
@@ -64,8 +65,19 @@ entt::registry& registry;
 Sequentity::Sequentity sequentity { registry };
 
 entity = registry.create();
-auto& track = registry.assign<Sequentity::Track>();
-track.
+auto& track = registry.assign<Sequentity::Track>("my first track");
+
+Sequentity::Channel channel; {
+    channel.label = "My first channel";
+    channel.color = ImColor::HSV(0.0f, 0.5f, 0.75f);
+}
+
+Sequentity::Event event; {
+    
+}
+
+channel.events.push_back(event);
+track.channels.push_back(channel);
 ```
 
 <br>
@@ -93,8 +105,8 @@ All data comes in the form of components with plain-old-data, including state li
 
 The repo comes with an example application to test out the sequencer. In it, there are a few areas of interest.
 
-1. Tools
 1. Input Handling
+1. Tools
 
 Any interaction with the registry is done through "tools", which is each represented as a System (in ECS terminology). A tool, such as `TranslateTool` is called once per iteration of the main application loop but only has an affect on the `Activated`, `Active` and `Deactivated` entities.
 
@@ -102,4 +114,6 @@ Any interaction with the registry is done through "tools", which is each represe
 - `Active` is reapplied each iteration with the current user input
 - `Deactivated` is a one-off event indicating that the manipulation has finished
 
-Input is generalised into 
+These components are attached by the application to any entity of interest.
+
+Input is generalised; for example, once the mouse has generated `InputPosition2D` data, it bears no connection to the fact that the information came from a mouse. It could have come from anywhere, such as iPad touch, Eye tracking or WASD keyboard keys. As such, there is also an example `InputPosition3D` component for e.g. markerless motion capture, VR controllers or something coming out of your 3d scene like a physics simulation.

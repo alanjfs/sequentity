@@ -9,7 +9,9 @@ using Orientation = float;
 
 struct InitialPosition : Position {};
 struct StartPosition : Position {};
+
 struct Size : Position {};
+struct InitialSize : Size {};
 
 struct Index {
     int absolute { 0 };

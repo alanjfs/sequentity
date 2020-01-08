@@ -139,12 +139,12 @@ struct State {
     Event* selection { nullptr };
 
     // Visual
-    float zoom[2] { 200.0f, 30.0f };
+    float zoom[2] { 250.0f, 20.0f };
     float pan[2] { 8.0f, 8.0f };
     int stride { 2 };
 
     // Transitions
-    float target_zoom[2] { 250.0f, 30.0f };
+    float target_zoom[2] { 200.0f, 20.0f };
     float target_pan[2] { 15.0f, 20.0f };
 };
 
@@ -217,7 +217,7 @@ struct Sequentity {
      *   |_____________|__________|
      *   ^             |
      * event           |
-     *                 
+     *
      */
     const Event* overlapping(const Track& channel);
     void each_overlapping(const Track& channel, OverlappingCallback func);
@@ -265,7 +265,8 @@ static struct ListerTheme_ {
     ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.150f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
-    
+    ImVec4 outline       { ImColor::HSV(0.0f, 0.0f, 0.1f) };
+
     float width { 150.0f };
 
 } ListerTheme;
@@ -303,6 +304,7 @@ static struct EditorTheme_ {
     ImVec4 end_time      { ImColor::HSV(0.0f, 0.0f, 0.25f) };
     
     float radius { 0.0f };
+    float spacing { 1.0f };
 
 } EditorTheme;
 
@@ -478,8 +480,8 @@ void Sequentity::draw(bool* p_open) {
     };
 
     auto& state = _registry.ctx<State>();
-    transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed);
-    transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed);
+    transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
+    transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
     transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
     transition(state.zoom[1], state.target_zoom[1], GlobalTheme.transition_speed);
 
@@ -713,6 +715,7 @@ void Sequentity::draw(bool* p_open) {
             id += std::to_string(indicator_count);
 
             ImGui::SetCursorPos(topPos - ImVec2{ size.x, size.y } - ImGui::GetWindowPos());
+            ImGui::SetItemAllowOverlap(); // Prioritise the last drawn (shouldn't this be the default?)
             ImGui::InvisibleButton(id.c_str(), size * 2.0f);
 
             static unsigned int initial_time { 0 };
@@ -803,41 +806,50 @@ void Sequentity::draw(bool* p_open) {
          *                         |_________________________|
          *
          */
+        auto Header = [&](const Track& track, ImVec2& cursor) {
+            // Draw track header, a separator-like empty space
+            // 
+            // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+            // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+            // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+            // |                                         |
+            // |_________________________________________|
+            // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+            // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
+            // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+            //
+            const ImVec2 size { windowSize.x, GlobalTheme.track_height };
+
+            // Hide underlying vertical lines
+            painter->AddRectFilled(
+                ImVec2{ C.x, cursor.y },
+                ImVec2{ C.x, cursor.y } + size,
+                ImColor(EditorTheme.background)
+            );
+
+            // Tint empty area with the track color
+            painter->AddRectFilled(
+                ImVec2{ C.x, cursor.y },
+                ImVec2{ C.x, cursor.y } + size,
+                ImColor(track.color.x, track.color.y, track.color.z, 0.1f)
+            );
+
+            painter->AddRect(
+                ImVec2{ C.x, cursor.y },
+                ImVec2{ C.x, cursor.y } + size,
+                ImColor(EditorTheme.mid)
+            );
+
+            cursor.y += size.y;
+        };
+
         auto Events = [&]() {
             ImVec2 cursor { C.x + state.pan[0], C.y + state.pan[1] };
 
             _registry.view<Index, Track>().each<Index>([&](const auto, auto& track) {
+                Header(track, cursor);
 
-                // Draw track header, a separator-like empty space
-                // 
-                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
-                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
-                // |                                         |
-                // |_________________________________________|
-                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-                // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
-                // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-                //
-                static ImVec2 button_size { 15.0f, 15.0f };
                 static ImVec2 padding { 10.0f, 2.0f };
-                static ImVec2 center { 0.0f, GlobalTheme.track_height / 2.0f };
-
-                ImVec2 size { windowSize.x, GlobalTheme.track_height };
-
-                painter->AddRectFilled(
-                    cursor,
-                    cursor + size,
-                    ImColor(EditorTheme.background)
-                );
-
-                painter->AddRect(
-                    cursor,
-                    cursor + size,
-                    ImColor(EditorTheme.mid)
-                );
-
-                cursor.y += size.y;
 
                 // Give each event a unique ImGui ID
                 unsigned int type_count { 0 };
@@ -854,21 +866,31 @@ void Sequentity::draw(bool* p_open) {
                 for (auto& [type, channel] : track.channels) {
                     for (auto& event : channel.events) {
 
+                        ImVec2 pos { time_to_px(event.time), 0.0f };
+                        ImVec2 size { time_to_px(event.length), state.zoom[1] };
+                        ImVec2 head_size { 10.0f, size.y };
+                        ImVec2 tail_size { 10.0f, size.y };
+
                         // Transitions
                         float target_height { 0.0f };
                         float target_thickness = 0.0f;
 
-                        ImVec2 pos { time_to_px(event.time), 0.0f };
-                        ImVec2 size { time_to_px(event.length), state.zoom[1] };
+                        /** TODO: Implement crop interaction and visualisation
+                             ____________________________________
+                            |      |                      |      |
+                            | head |         body         | tail |
+                            |______|______________________|______|
 
-                        std::string id { "##event" };
-                        id += track.label;
-                        id += std::to_string(event_count);
+                        */
+                        auto head_id = std::string{ "##event-head" } + track.label + std::to_string(event_count);
+                        auto body_id = std::string{ "##event-body" } + track.label + std::to_string(event_count);
+                        auto tail_id = std::string{ "##event-tail" } + track.label + std::to_string(event_count);
+
                         ImGui::SetCursorPos(cursor + pos - ImGui::GetWindowPos());
                         ImGui::SetItemAllowOverlap();
-                        ImGui::InvisibleButton(id.c_str(), size);
+                        ImGui::InvisibleButton(body_id.c_str(), size);
 
-                        ImVec4 color = event.color;
+                        ImVec4 color = channel.color;
 
                         if (!event.enabled) {
                             color = ImColor::HSV(0.0f, 0.0f, 0.5f);
@@ -898,10 +920,7 @@ void Sequentity::draw(bool* p_open) {
                             target_height = 5.0f;
                         }
 
-                        const float height_delta = target_height - event.height;
                         transition(event.height, target_height, GlobalTheme.transition_speed);
-                        // transition(event.thickness, target_height, GlobalTheme.transition_speed);
-
                         pos -= event.height;
 
                         const int shadow = 2;
@@ -915,6 +934,13 @@ void Sequentity::draw(bool* p_open) {
                             cursor + pos,
                             cursor + pos + size,
                             ImColor(color), EditorTheme.radius
+                        );
+
+                        // Add a dash to the bottom of each event.
+                        painter->AddRectFilled(
+                            cursor + pos + ImVec2{ 0.0f, size.y - 5.0f },
+                            cursor + pos + size,
+                            ImColor(color * 0.8f), EditorTheme.radius
                         );
 
                         if (ImGui::IsItemHovered() || ImGui::IsItemActive() || state.selection == &event) {
@@ -934,8 +960,10 @@ void Sequentity::draw(bool* p_open) {
 
                         if (event.enabled) {
                             if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-                                if (event.length > 10.0f) {
+                                if (event.length > 5.0f) {
                                     painter->AddText(
+                                        ImGui::GetFont(),
+                                        ImGui::GetFontSize() * 0.85f,
                                         cursor + pos + ImVec2{ 3.0f + event.thickness, 0.0f },
                                         ImColor(EditorTheme.text),
                                         std::to_string(event.time).c_str()
@@ -944,6 +972,8 @@ void Sequentity::draw(bool* p_open) {
                                 
                                 if (event.length > 30.0f) {
                                     painter->AddText(
+                                        ImGui::GetFont(),
+                                        ImGui::GetFontSize() * 0.85f,
                                         cursor + pos + ImVec2{ size.x - 20.0f, 0.0f },
                                         ImColor(EditorTheme.text),
                                         std::to_string(event.length).c_str()
@@ -956,7 +986,7 @@ void Sequentity::draw(bool* p_open) {
                     }
 
                     // Next event type
-                    cursor.y += state.zoom[1];
+                    cursor.y += state.zoom[1] + EditorTheme.spacing;
                 }
 
                 // Next track
@@ -1005,24 +1035,25 @@ void Sequentity::draw(bool* p_open) {
          */
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
-            const auto padding = 5.0f;
+            const auto padding = 7.0f;
 
             _registry.view<Index, Track>().each<Index>([&](const auto&, auto& track) {
 
-                // Draw channel header
+                // Draw track header
                 //  _________________________________________
                 // |_________________________________________|
                 //
+                static const float border_width = 4.0f;
                 const auto textSize = ImGui::CalcTextSize(track.label);
                 const auto pos = ImVec2{
-                    ListerTheme.width - textSize.x - padding,
+                    ListerTheme.width - textSize.x - padding - padding,
                     GlobalTheme.track_height / 2.0f - textSize.y / 2.0f
                 };
 
                 painter->AddRectFilled(
                     cursor,
                     cursor + ImVec2{ ListerTheme.width, GlobalTheme.track_height },
-                    ImColor(ListerTheme.alternate)
+                    ImColor(track.color * 0.6f)
                 );
 
                 painter->AddText(
@@ -1031,18 +1062,35 @@ void Sequentity::draw(bool* p_open) {
 
                 cursor.y += GlobalTheme.track_height;
 
-                // Draw children
-                //
+                // Draw channels
                 // |
-                // |-- child
-                // |-- child
-                // |__ child
+                // |-- channel
+                // |-- channel
+                // |__ channel
                 //
                 for (auto& [type, channel] : track.channels) {
+                    static const ImVec2 indicator_size { 9.0f, 9.0f };
+                    const ImVec2 indicator_pos = {
+                        ListerTheme.width - indicator_size.x - padding,
+                        state.zoom[1] * 0.5f - indicator_size.y * 0.5f
+                    };
+
+                    painter->AddRectFilled(
+                        cursor + indicator_pos,
+                        cursor + indicator_pos + indicator_size,
+                        ImColor(channel.color)
+                    );
+
+                    painter->AddRectFilled(
+                        cursor + indicator_pos + indicator_size.y - border_width,
+                        cursor + indicator_pos + indicator_size,
+                        ImColor(channel.color * 0.75f)
+                    );
+
                     const auto textSize = ImGui::CalcTextSize(channel.label) * 0.85f;
                     const auto pos = ImVec2{
-                        ListerTheme.width - textSize.x - padding,
-                        state.zoom[1] / 2.0f - textSize.y / 2.0f
+                        ListerTheme.width - textSize.x - padding - indicator_size.x - padding,
+                        state.zoom[1] * 0.5f - textSize.y * 0.5f
                     };
 
                     painter->AddText(
@@ -1052,7 +1100,7 @@ void Sequentity::draw(bool* p_open) {
                         ImColor(ListerTheme.text), channel.label
                     );
 
-                    cursor.y += state.zoom[1];
+                    cursor.y += state.zoom[1] + EditorTheme.spacing;
                 }
             });
         };
@@ -1067,10 +1115,10 @@ void Sequentity::draw(bool* p_open) {
         TimelineBackground();
         Timeline();
         Range();
-        TimeIndicator(state.range.x(), TimelineTheme.start_time, EditorTheme.start_time);
-        
+
         // Can intercept mouse events
         bool hovering_background { true };
+        TimeIndicator(state.range.x(), TimelineTheme.start_time, EditorTheme.start_time);
         if (ImGui::IsItemHovered()) hovering_background = false;
         TimeIndicator(state.range.y(), TimelineTheme.end_time, EditorTheme.end_time);
         if (ImGui::IsItemHovered()) hovering_background = false;

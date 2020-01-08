@@ -59,8 +59,7 @@ struct RotateEventData {
 };
 
 struct ScaleEventData {
-    float offset;
-    std::vector<float> scale;
+    std::vector<float> scales;
 };
 
 struct ScrubEventData {
@@ -92,6 +91,17 @@ static void SelectTool() {
 }
 
 
+/**
+ * @brief Translate an entity
+ *
+ *      __________ 
+ *     |          |
+ *     |          | ----------->   
+ *     |          |
+ *     |__________|
+ *
+ *
+ */
 static void TranslateTool() {
     // Handle press input of type: 2D range, relative anything with a position
     Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([](
@@ -116,8 +126,8 @@ static void TranslateTool() {
             event.data = static_cast<void*>(data);
         }
 
-        // Write Sequentity data..
-        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text);
+        // The default name for any new track is coming from the owning entity
+        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
         bool has_channel = track.channels.count(TranslateEvent);
 
         auto& channel = track.channels[TranslateEvent];
@@ -125,7 +135,7 @@ static void TranslateTool() {
 
         if (!has_channel) {
             channel.label = "Translate";
-            channel.color = ImColor::HSV(0.0f, 1.0f, 1.0f);
+            channel.color = ImColor::HSV(0.0f, 0.75f, 0.75f);
         }
 
         Registry.reset<Selected>();
@@ -150,6 +160,18 @@ static void TranslateTool() {
 }
 
 
+/**
+ * @brief Rotate an entity
+ *                  __
+ *      __________     \
+ *     |          |     v
+ *     |          |   
+ *     |          |
+ *     |__________|
+ *  ^
+ *   \___
+ *
+ */
 static void RotateTool() {
     Registry.view<Name, Activated, InputPosition2D, Color, Orientation>().each([](
                                                                          auto entity,
@@ -173,8 +195,7 @@ static void RotateTool() {
             event.data = static_cast<void*>(data);
         }
 
-        // Write Sequentity data..
-        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text);
+        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
         bool has_channel = track.channels.count(RotateEvent);
 
         auto& channel = track.channels[RotateEvent];
@@ -182,7 +203,7 @@ static void RotateTool() {
 
         if (!has_channel) {
             channel.label = "Rotate";
-            channel.color = ImColor::HSV(0.33f, 1.0f, 1.0f);
+            channel.color = ImColor::HSV(0.33f, 0.75f, 0.75f);
         }
 
         Registry.reset<Selected>();
@@ -207,9 +228,82 @@ static void RotateTool() {
 }
 
 
-static void ScaleTool() {}
+/**
+ * @brief Scale an entity
+ *
+ *   \              /
+ *    \ __________ /
+ *     |          |
+ *     |          |
+ *     |          |
+ *     |__________|
+ *    /            \
+ *   /              \
+ *
+ */
+static void ScaleTool() {
+    Registry.view<Name, Activated, InputPosition2D, Color, Size>().each([](
+                                                                         auto entity,
+                                                                         const auto& name,
+                                                                         const auto& activated,
+                                                                         const auto& input,
+                                                                         const auto& color,
+                                                                         const auto& size) {
+        auto* data = new ScaleEventData{}; {
+            data->scales.push_back(1.0f);
+        }
+
+        Sequentity::Event event; {
+            event.time = activated.time + 1;
+            event.length = 1;
+            event.color = color;
+
+            // Store reference to our data
+            event.type = ScaleEvent;
+            event.data = static_cast<void*>(data);
+        }
+
+        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
+        bool has_channel = track.channels.count(ScaleEvent);
+
+        auto& channel = track.channels[ScaleEvent];
+        channel.events.push_back(event);
+
+        if (!has_channel) {
+            channel.label = "Scale";
+            channel.color = ImColor::HSV(0.52f, 0.75f, 0.50f);
+        }
+
+        Registry.reset<Selected>();
+        Registry.assign<Selected>(entity);
+    });
+
+    Registry.view<Name, Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](const auto& name,
+                                                                           const auto&,
+                                                                           const auto& input,
+                                                                           auto& track) {
+        if (!track.channels.count(ScaleEvent)) { Warning() << "This should never happen"; return; }
+
+        auto& channel = track.channels[ScaleEvent];
+        auto& event = channel.events.back();
+
+        auto data = static_cast<ScaleEventData*>(event.data);
+        data->scales.push_back(1.0f + input.relative.x * 0.01f);
+        event.length += 1;
+    });
+
+    Registry.view<Deactivated>().each([](auto entity, const auto&) {});
+}
 
 
+/**
+ * @brief Relatively move the timeline
+ *
+ * This tool differs from the others, in that it doesn't actually apply to the
+ * active entity. Instead, it applies to the global state of Sequentity. But,
+ * it currently can't do that, unless an entity is active. So that's a bug.
+ *
+ */
 static void ScrubTool() {
     // Press
     static int previous_time { 0 };
@@ -221,7 +315,7 @@ static void ScrubTool() {
     // Hold
     Registry.view<Active, InputPosition2D>().each([](const auto&, const auto& input) {
         auto& state = Registry.ctx<Sequentity::State>();
-        state.current_time = previous_time + input.relative.x;
+        state.current_time = previous_time + input.relative.x / 10;
     });
 
     // Release

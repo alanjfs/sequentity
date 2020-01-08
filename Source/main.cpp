@@ -27,7 +27,6 @@ static entt::registry Registry;
 
 #include "Utils.hpp"
 #include "Theme.inl"
-#include "Math.inl"
 #include "Components.inl"
 #include "Sequentity.inl"
 #include "Tools.inl"
@@ -86,6 +85,14 @@ static void on_select_destroyed(entt::entity entity, entt::registry& registry) {
     registry.remove<Sequentity::Selected>(entity);
 }
 
+static void on_position_constructed(entt::entity entity, entt::registry& registry, const Position& position) {
+    registry.assign<InitialPosition>(entity, position);
+}
+
+static void on_size_constructed(entt::entity entity, entt::registry& registry, const Size& size) {
+    registry.assign<InitialSize>(entity, size);
+}
+
 
 Application::Application(const Arguments& arguments): Platform::Application{arguments,
     Configuration{}.setTitle("Application")
@@ -136,14 +143,18 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     this->setSwapInterval(1);  // VSync
 
-    setup();
-
     _sequentity.after_time_changed([this]() { onTimeChanged(); });
     _sequentity.play();
 
     // Synchronise Sequentity with our internal application selection
     Registry.on_construct<Selected>().connect<on_select_constructed>();
     Registry.on_destroy<Selected>().connect<on_select_destroyed>();
+
+    // AQ4: Keep track of initial values
+    Registry.on_construct<Position>().connect<on_position_constructed>();
+    Registry.on_construct<Size>().connect<on_size_constructed>();
+
+    setup();
 }
 
 
@@ -171,7 +182,6 @@ void Application::setup() {
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f));
     Registry.assign<Orientation>(red, 0.0_degf);
     Registry.assign<Position>(red, 300, 50 + 50);
-    Registry.assign<InitialPosition>(red, 300, 50 + 50);
 
     Registry.assign<Name>(green, "Green Rectangle");
     Registry.assign<Index>(green, 2);
@@ -179,7 +189,6 @@ void Application::setup() {
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f));
     Registry.assign<Orientation>(green, 0.0_degf);
     Registry.assign<Position>(green, 500, 50 + 50);
-    Registry.assign<InitialPosition>(green, 500, 50 + 50);
 
     Registry.assign<Name>(blue, "Blue Rectangle");
     Registry.assign<Index>(blue, 3);
@@ -187,7 +196,6 @@ void Application::setup() {
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f));
     Registry.assign<Orientation>(blue, 0.0_degf);
     Registry.assign<Position>(blue, 700, 50 + 50);
-    Registry.assign<InitialPosition>(blue, 700, 50 + 50);
 
     Registry.assign<Name>(purple, "Purple Rectangle");
     Registry.assign<Index>(purple, 4);
@@ -203,7 +211,6 @@ void Application::setup() {
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
     Registry.assign<Position>(gray, 550, 200 + 50);
-    Registry.assign<InitialPosition>(gray, 550, 200 + 50);
 }
 
 
@@ -232,7 +239,7 @@ void Application::onTimeChanged() {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
-                    // Guaranteed to exist, given that the event only applies to entitiy that carry it
+                    // Guaranteed to exist by the tool, operating solely on entities that carry it
                     auto& position = Registry.get<Position>(entity);
 
                     auto data = static_cast<TranslateEventData*>(event.data);
@@ -241,13 +248,25 @@ void Application::onTimeChanged() {
                     position = value;
                 }
 
-                if (event.type == RotateEvent) {
-                    // Guaranteed to exist, given that the event only applies to entitiy that carry it
+                else if (event.type == RotateEvent) {
                     auto& orientation = Registry.get<Orientation>(entity);
                     auto data = static_cast<RotateEventData*>(event.data);
                     const int index = current_time - event.time;
                     const auto value = data->orientations[index];
                     orientation = value;
+                }
+
+                else if (event.type == ScaleEvent) {
+                    auto& [initial, size] = Registry.get<InitialSize, Size>(entity);
+                    auto data = static_cast<ScaleEventData*>(event.data);
+                    const int index = current_time - event.time;
+                    const auto value = data->scales[index];
+                    size.x = static_cast<int>(initial.x * value);
+                    size.y = static_cast<int>(initial.y * value);
+                }
+
+                else {
+                    Warning() << "Unknown event type!" << event.type;
                 }
             });
         });
@@ -267,8 +286,8 @@ void Application::reset() {
         orientation = 0.0f;
     });
 
-    Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
-        position = initial;
+    Registry.view<Size, InitialSize>().each([&](auto& size, const auto& initial) {
+        size = initial;
     });
 }
 
@@ -405,31 +424,29 @@ void Application::drawTransport() {
 void Application::drawScene() {
     auto& sqstate = Registry.ctx<Sequentity::State>();
 
-    ImVec2 size = ImGui::GetWindowSize();
-    Vector2i shapeSize { 100, 100 };
-
     ImGui::Begin("3D Viewport", nullptr);
     {
-        if (Widgets::Button("Select", _activeTool.type == ToolType::Select)) {
+        if (Widgets::Button("Select (Q)", _activeTool.type == ToolType::Select)) {
             _activeTool = Tool{ ToolType::Select, SelectTool };
         }
 
-        if (Widgets::Button("Translate", _activeTool.type == ToolType::Translate)) {
+        if (Widgets::Button("Translate (W)", _activeTool.type == ToolType::Translate)) {
             _activeTool = Tool{ ToolType::Translate, TranslateTool };
         }
 
-        if (Widgets::Button("Rotate", _activeTool.type == ToolType::Rotate)) {
+        if (Widgets::Button("Rotate (E)", _activeTool.type == ToolType::Rotate)) {
             _activeTool = Tool{ ToolType::Rotate, RotateTool };
         }
 
-        if (Widgets::Button("Scale", _activeTool.type == ToolType::Scale)) {
+        if (Widgets::Button("Scale (R)", _activeTool.type == ToolType::Scale)) {
             _activeTool = Tool{ ToolType::Scale, ScaleTool };
         }
 
-        Widgets::Button("Scrub", _activeTool.type == ToolType::Scrub);
+        Widgets::Button("Scrub (K)", _activeTool.type == ToolType::Scrub);
 
         auto rpos = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
-        auto apos = Vector2i(Vector2(ImGui::GetIO().MousePos.x - ImGui::GetWindowWidth(), ImGui::GetIO().MousePos.y - ImGui::GetWindowHeight()));
+        auto apos = Vector2i(Vector2(ImGui::GetIO().MousePos.x - ImGui::GetWindowPos().x,
+                                     ImGui::GetIO().MousePos.y - ImGui::GetWindowPos().y));
         Position relativePosition { rpos.x(), rpos.y() };
         Position absolutePosition { apos.x(), apos.y() };
 
@@ -466,12 +483,14 @@ void Application::drawScene() {
         Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
                                                                      const auto& track,
                                                                      const auto& color) {
-            if (auto event = _sequentity.overlapping(track)) {
-                auto& data = *static_cast<TranslateEventData*>(event->data);
-                auto pos = position + data.offset;
-                auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
-                Widgets::Cursor(impos, color);
-            }
+            _sequentity.each_overlapping(track, [&](auto& event) {
+                if (event.type == TranslateEvent) {
+                    auto& data = *static_cast<TranslateEventData*>(event.data);
+                    auto pos = position + data.offset;
+                    auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                    Widgets::Cursor(impos, color);
+                }
+            });
         });
     }
     ImGui::End();
@@ -552,6 +571,7 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Enter)        redraw();
     if (event.key() == KeyEvent::Key::Delete)       clear();
     if (event.key() == KeyEvent::Key::Backspace)    { _running ^= true; if (_running) redraw(); }
+    if (event.key() == KeyEvent::Key::Space)        { _sequentity.play(); }
     if (event.key() == KeyEvent::Key::F1)           _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;
