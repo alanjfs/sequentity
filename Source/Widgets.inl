@@ -1,19 +1,48 @@
 
-using SmartButtonState = int;
-enum SmartButtonState_ {
-    SmartButtonState_None = 0,
-    SmartButtonState_Hovered = 1 << 1,
-    SmartButtonState_Pressed = 1 << 2,
-    SmartButtonState_Dragged = 1 << 3,
-    SmartButtonState_Released = 1 << 4
-};
+namespace Widgets {
 
 
-static SmartButtonState SmartButton(const char* label,
-                                    ImVec2 pos,
-                                    ImVec2 size = { 50, 50 },
-                                    float angle = 0.0f,
-                                    ImVec4 color = { 1.0f, 1.0f, 1.0f, 1.0f }) {
+inline ImVec4 operator*(const ImVec4& vec, const float mult) {
+    return ImVec4{ vec.x * mult, vec.y * mult, vec.z * mult, vec.w };
+}
+
+inline ImVec2 operator+(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x + value, vec.y + value };
+}
+
+inline ImVec2 operator+(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x + value.x, vec.y + value.y };
+}
+
+inline void operator-=(ImVec2& vec, const float value) {
+    vec.x -= value;
+    vec.y -= value;
+}
+
+inline ImVec2 operator-(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x - value, vec.y - value };
+}
+
+inline ImVec2 operator-(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x - value.x, vec.y - value.y };
+}
+
+inline ImVec2 operator*(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x * value, vec.y * value };
+}
+
+inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x * value.x, vec.y * value.y };
+}
+
+
+static bool Graphic(const char* label,
+                    ImVec2 pos,
+                    ImVec2 size = { 50, 50 },
+                    float angle = 0.0f,
+                    ImVec4 color = { 1.0f, 1.0f, 1.0f, 1.0f },
+                    bool selected = false) {
+
     auto corner = ImGui::GetWindowPos();
     auto& painter = *ImGui::GetWindowDrawList();
 
@@ -50,6 +79,26 @@ static SmartButtonState SmartButton(const char* label,
     auto c = rotate(ImVec2{ -coord.x,  coord.y }, rad);
     auto d = rotate(ImVec2{  coord.x,  coord.y }, rad);
 
+    if (selected) {
+        painter.AddQuad(
+            corner + pos + a,
+            corner + pos + b,
+            corner + pos + d,
+            corner + pos + c,
+            ImColor::HSV(0.0f, 0.0f, 1.0f),
+            6.0f
+        );
+    }
+
+    // Shadow
+    painter.AddQuadFilled(
+        corner + pos + a + 5.0,
+        corner + pos + b + 5.0,
+        corner + pos + d + 5.0,
+        corner + pos + c + 5.0,
+        ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+    );
+
     painter.AddQuadFilled(
         corner + pos + a,
         corner + pos + b,
@@ -58,16 +107,42 @@ static SmartButtonState SmartButton(const char* label,
         ImColor(color)
     );
 
-    SmartButtonState state { 0 };
-    if (ImGui::IsItemHovered()) state |= SmartButtonState_Hovered;
+    return ImGui::IsItemActive();
+}
 
-    if (ImGui::IsItemActivated()) {
-        state |= SmartButtonState_Pressed;
-    } else if (ImGui::IsItemActive()) {
-        state |= SmartButtonState_Dragged;
-    } else if (ImGui::IsItemDeactivated()) {
-        state |= SmartButtonState_Released;
+
+void Cursor(ImVec2 corner, ImColor color) {
+    auto root = ImGui::GetWindowPos();
+    auto painter = ImGui::GetWindowDrawList();
+
+    auto abscorner = root + corner;
+
+    painter->AddCircleFilled(
+        abscorner,
+        10.0f,
+        ImColor::HSV(0.0f, 0.0f, 1.0f)
+    );
+}
+
+
+auto Button(const char* label, bool checked, float width = 100.0f) -> bool {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 10.0f, 20.0f });
+
+    if (checked) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.25f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.15f));
+    }
+    else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 0.1f));
     }
 
-    return state;
+    const bool pressed = ImGui::Button(label, {width, 0});
+
+    if (checked) ImGui::PopStyleColor();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    return pressed;
+}
+
 }

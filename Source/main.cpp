@@ -45,8 +45,9 @@ public:
 
     void setup();  // Populate registry with entities and components
     void reset();  // Reset all entities
-    void update(); // Apply active events from Sequentity
     void clear();  // Clear all events
+
+    void onTimeChanged(); // Apply active events from Sequentity
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -61,8 +62,6 @@ public:
     void textInputEvent(TextInputEvent& event) override;
 
 private:
-    void _pollMouse();
-
     ImGuiIntegration::Context _imgui{ NoCreate };
     Sequentity::Sequentity _sequentity { Registry };
 
@@ -79,6 +78,15 @@ private:
 };
 
 
+static void on_select_constructed(entt::entity entity, entt::registry& registry) {
+    registry.assign<Sequentity::Selected>(entity);
+}
+
+static void on_select_destroyed(entt::entity entity, entt::registry& registry) {
+    registry.remove<Sequentity::Selected>(entity);
+}
+
+
 Application::Application(const Arguments& arguments): Platform::Application{arguments,
     Configuration{}.setTitle("Application")
                    .setSize({1600, 900})
@@ -87,6 +95,7 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     // Use virtual scale, rather than physical
     glfwGetWindowContentScale(this->window(), &_dpiScaling.x(), &_dpiScaling.y());
 
+    // Center window on primary monitor
     const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
     glfwSetWindowPos(this->window(),
         (mode->width / 2) - (windowSize().x() / 2),
@@ -129,11 +138,21 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     setup();
 
-    _sequentity.after_time_changed([this]() { update(); });
+    _sequentity.after_time_changed([this]() { onTimeChanged(); });
     _sequentity.play();
+
+    // Synchronise Sequentity with our internal application selection
+    Registry.on_construct<Selected>().connect<on_select_constructed>();
+    Registry.on_destroy<Selected>().connect<on_select_destroyed>();
 }
 
 
+/**
+ * @brief Setup scene data
+ *
+ * This would typically come off of disk
+ *
+ */
 void Application::setup() {
     auto global = Registry.create();
     Registry.assign<Name>(global, "Global");
@@ -148,52 +167,62 @@ void Application::setup() {
 
     Registry.assign<Name>(red, "Red Rectangle");
     Registry.assign<Index>(red, 1);
-    Registry.assign<Size>(red, Vector2i{ 100, 100 });
+    Registry.assign<Size>(red, 100, 100);
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f));
     Registry.assign<Orientation>(red, 0.0_degf);
-    Registry.assign<Position>(red, Vector2i{ 300, 50 + 50 });
-    Registry.assign<InitialPosition>(red, Vector2i{ 300, 50 + 50 });
+    Registry.assign<Position>(red, 300, 50 + 50);
+    Registry.assign<InitialPosition>(red, 300, 50 + 50);
 
     Registry.assign<Name>(green, "Green Rectangle");
     Registry.assign<Index>(green, 2);
-    Registry.assign<Size>(green, Vector2i{ 100, 100 });
+    Registry.assign<Size>(green, 100, 100);
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f));
     Registry.assign<Orientation>(green, 0.0_degf);
-    Registry.assign<Position>(green, Vector2i{ 500, 50 + 50 });
-    Registry.assign<InitialPosition>(green, Vector2i{ 500, 50 + 50 });
+    Registry.assign<Position>(green, 500, 50 + 50);
+    Registry.assign<InitialPosition>(green, 500, 50 + 50);
 
     Registry.assign<Name>(blue, "Blue Rectangle");
     Registry.assign<Index>(blue, 3);
-    Registry.assign<Size>(blue, Vector2i{ 100, 100 });
+    Registry.assign<Size>(blue, 100, 100);
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f));
     Registry.assign<Orientation>(blue, 0.0_degf);
-    Registry.assign<Position>(blue, Vector2i{ 700, 50 + 50 });
-    Registry.assign<InitialPosition>(blue, Vector2i{ 700, 50 + 50 });
+    Registry.assign<Position>(blue, 700, 50 + 50);
+    Registry.assign<InitialPosition>(blue, 700, 50 + 50);
 
     Registry.assign<Name>(purple, "Purple Rectangle");
     Registry.assign<Index>(purple, 4);
-    Registry.assign<Size>(purple, Vector2i{ 80, 100 });
+    Registry.assign<Size>(purple, 80, 100);
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f));
     Registry.assign<Orientation>(purple, 0.0_degf);
-    Registry.assign<Position>(purple, Vector2i{ 350, 200 + 50 });
-    Registry.assign<InitialPosition>(purple, Vector2i{ 350, 200 + 50 });
+    Registry.assign<Position>(purple, 350, 200 + 50);
+    Registry.assign<InitialPosition>(purple, 350, 200 + 50);
 
     Registry.assign<Name>(gray, "Gray Rectangle");
     Registry.assign<Index>(gray, 5);
-    Registry.assign<Size>(gray, Vector2i{ 80, 40 });
+    Registry.assign<Size>(gray, 80, 40);
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
-    Registry.assign<Position>(gray, Vector2i{ 550, 200 + 50 });
-    Registry.assign<InitialPosition>(gray, Vector2i{ 550, 200 + 50 });
+    Registry.assign<Position>(gray, 550, 200 + 50);
+    Registry.assign<InitialPosition>(gray, 550, 200 + 50);
 }
 
 
-void Application::update() {
+void Application::onTimeChanged() {
     auto& sqstate = Registry.ctx<Sequentity::State>();
     auto startTime = sqstate.range.x();
-    auto currentTime = sqstate.currentTime;
+    auto current_time = sqstate.current_time;
 
-    if (currentTime <= startTime) {
+    if (!Registry.empty<Deactivated>()) {
+        Registry.reset<Abort>();
+    }
+
+    if (current_time >= sqstate.range.y()) {
+        Registry.view<Active>().each([](auto entity, const auto) {
+            Registry.assign_or_replace<Abort>(entity);
+        });
+    }
+
+    if (current_time <= startTime) {
         reset();
     }
 
@@ -207,8 +236,8 @@ void Application::update() {
                     auto& position = Registry.get<Position>(entity);
 
                     auto data = static_cast<TranslateEventData*>(event.data);
-                    const int index = currentTime - event.time;
-                    const auto value = data->positions[index] - data->offset;
+                    const int index = current_time - event.time;
+                    auto value = data->positions[index] - data->offset;
                     position = value;
                 }
 
@@ -216,7 +245,7 @@ void Application::update() {
                     // Guaranteed to exist, given that the event only applies to entitiy that carry it
                     auto& orientation = Registry.get<Orientation>(entity);
                     auto data = static_cast<RotateEventData*>(event.data);
-                    const int index = currentTime - event.time;
+                    const int index = current_time - event.time;
                     const auto value = data->orientations[index];
                     orientation = value;
                 }
@@ -250,7 +279,7 @@ void Application::clear() {
     //       way to assert that when a channel goes away, so does the data?
     int deletedCount { 0 };
     Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
-        for (auto& [type, channel] : track) {
+        for (auto& [type, channel] : track.channels) {
             for (auto& event : channel.events) {
                 if (type == TranslateEvent) {
                     delete static_cast<TranslateEventData*>(event.data);
@@ -338,7 +367,7 @@ void Application::drawTransport() {
         if (ImGui::Button(">")) _sequentity.step(1);
 
         ImGui::SameLine();
-        if (ImGui::Button("Stop")) {
+        if (ImGui::Button("Abort")) {
             _sequentity.stop();
         }
 
@@ -347,20 +376,18 @@ void Application::drawTransport() {
             clear();
         }
 
-        if (ImGui::DragInt("Time", &sqstate.currentTime, 1.0f, sqstate.range.x(), sqstate.range.y())) {
-            _sequentity.set_current_time(sqstate.currentTime);
-        }
+        ImGui::DragInt("Time", &sqstate.current_time, 1.0f, sqstate.range.x(), sqstate.range.y());
 
         if (ImGui::DragInt2("Range", sqstate.range.data())) {
             if (sqstate.range.x() < 0) sqstate.range.x() = 0;
             if (sqstate.range.y() < 5) sqstate.range.y() = 5;
 
-            if (sqstate.currentTime < sqstate.range.x()) {
-                sqstate.currentTime = sqstate.range.x();
+            if (sqstate.current_time < sqstate.range.x()) {
+                sqstate.current_time = sqstate.range.x();
             }
 
-            if (sqstate.currentTime > sqstate.range.y()) {
-                sqstate.currentTime = sqstate.range.y();
+            if (sqstate.current_time > sqstate.range.y()) {
+                sqstate.current_time = sqstate.range.y();
             }
         }
 
@@ -368,7 +395,7 @@ void Application::drawTransport() {
         ImGui::SliderFloat("##zoom", &sqstate.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
         ImGui::SliderFloat("Zoom", &sqstate.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Scroll", sqstate.target_scroll);
+        ImGui::DragFloat2("Pan", sqstate.target_pan);
         ImGui::SliderInt("Stride", &sqstate.stride, 1, 5);
     }
     ImGui::End();
@@ -381,61 +408,30 @@ void Application::drawScene() {
     ImVec2 size = ImGui::GetWindowSize();
     Vector2i shapeSize { 100, 100 };
 
-    auto Cursor = [&](ImVec2 corner, ImColor color) {
-        auto root = ImGui::GetWindowPos();
-        auto painter = ImGui::GetWindowDrawList();
-
-        auto abscorner = root + corner;
-
-        painter->AddCircleFilled(
-            abscorner,
-            10.0f,
-            ImColor::HSV(0.0f, 0.0f, 1.0f)
-        );
-    };
-
-    auto Button = [&](const char* label, bool checked, float width = 100.0f) -> bool {
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 10.0f, 20.0f });
-
-        if (checked) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.25f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.15f));
-        }
-        else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 0.1f));
-        }
-
-        const bool pressed = ImGui::Button(label, {width, 0});
-
-        if (checked) ImGui::PopStyleColor();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
-
-        return pressed;
-    };
-
     ImGui::Begin("3D Viewport", nullptr);
     {
-        if (Button("Select", _activeTool.type == ToolType::Select)) {
+        if (Widgets::Button("Select", _activeTool.type == ToolType::Select)) {
             _activeTool = Tool{ ToolType::Select, SelectTool };
         }
 
-        if (Button("Translate", _activeTool.type == ToolType::Translate)) {
+        if (Widgets::Button("Translate", _activeTool.type == ToolType::Translate)) {
             _activeTool = Tool{ ToolType::Translate, TranslateTool };
         }
 
-        if (Button("Rotate", _activeTool.type == ToolType::Rotate)) {
+        if (Widgets::Button("Rotate", _activeTool.type == ToolType::Rotate)) {
             _activeTool = Tool{ ToolType::Rotate, RotateTool };
         }
 
-        if (Button("Scale", _activeTool.type == ToolType::Scale)) {
+        if (Widgets::Button("Scale", _activeTool.type == ToolType::Scale)) {
             _activeTool = Tool{ ToolType::Scale, ScaleTool };
         }
 
-        Button("Scrub", _activeTool.type == ToolType::Scrub);
+        Widgets::Button("Scrub", _activeTool.type == ToolType::Scrub);
 
-        auto relativePosition = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
-        auto absolutePosition = Vector2i(Vector2(ImGui::GetIO().MousePos - ImGui::GetWindowPos()));
+        auto rpos = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
+        auto apos = Vector2i(Vector2(ImGui::GetIO().MousePos.x - ImGui::GetWindowWidth(), ImGui::GetIO().MousePos.y - ImGui::GetWindowHeight()));
+        Position relativePosition { rpos.x(), rpos.y() };
+        Position absolutePosition { apos.x(), apos.y() };
 
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
                                                                            const auto& name,
@@ -443,22 +439,23 @@ void Application::drawScene() {
                                                                            const auto& orientation,
                                                                            const auto& color,
                                                                            const auto& size) {
-            auto imsize = ImVec2((float)size.x(), (float)size.y());
-            auto impos = ImVec2((float)position.x(), (float)position.y());
+            auto imsize = ImVec2((float)size.x, (float)size.y);
+            auto impos = ImVec2((float)position.x, (float)position.y);
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = sqstate.currentTime + (sqstate.playing ? 1 : 0);
-            SmartButton(name.text, impos, imsize, imangle, imcolor);
+            auto time = sqstate.current_time + (sqstate.playing ? 1 : 0);
+            bool selected = Registry.has<Selected>(entity);
+            Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
             if (ImGui::IsItemActivated()) {
-                Registry.assign<Activated>(entity, sqstate.currentTime);
-                Registry.assign<Input2DRange>(entity, absolutePosition, relativePosition);
+                Registry.assign<Activated>(entity, sqstate.current_time);
+                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
             }
 
             else if (ImGui::IsItemActive()) {
                 Registry.assign<Active>(entity);
-                Registry.replace<Input2DRange>(entity, absolutePosition, relativePosition);
+                Registry.replace<InputPosition2D>(entity, absolutePosition, relativePosition);
             }
 
             else if (ImGui::IsItemDeactivated()) {
@@ -471,8 +468,9 @@ void Application::drawScene() {
                                                                      const auto& color) {
             if (auto event = _sequentity.overlapping(track)) {
                 auto& data = *static_cast<TranslateEventData*>(event->data);
-                auto impos = ImVec2(Vector2(position + data.offset));
-                Cursor(impos, color);
+                auto pos = position + data.offset;
+                auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                Widgets::Cursor(impos, color);
             }
         });
     }
@@ -499,10 +497,9 @@ void Application::drawEvent() {
     _sequentity.draw(&_showSequencer);
 
     // Erase all current inputs
-    if (Registry.view<Deactivated>().size() > 0) {
-        Registry.reset<Input1DRange>();
-        Registry.reset<Input2DRange>();
-        Registry.reset<Input3DRange>();
+    if (!Registry.empty<Deactivated>()) {
+        Registry.reset<InputPosition2D>();
+        Registry.reset<InputPosition3D>();
     }
 
     // Restore order to this world
