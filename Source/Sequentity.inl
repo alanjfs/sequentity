@@ -94,15 +94,19 @@ struct Event {
     EventType type { EventType_Move };
 };
 
+
 /**
  * @brief A collection of events
  *
  */
 struct Channel {
     const char* label { "Untitled channel" };
+
     ImVec4 color { ImColor::HSV(0.33f, 0.5f, 1.0f) };
+
     std::vector<Event> events;
 };
+
 
 /**
  * @brief A collection of channels
@@ -110,8 +114,16 @@ struct Channel {
  */
 struct Track {
     const char* label { "Untitled track" };
+
     ImVec4 color { ImColor::HSV(0.66f, 0.5f, 1.0f) };
+
+    bool solo { false };
+    bool mute { false };
+
     std::unordered_map<EventType, Channel> channels;
+    
+    // Internal
+    bool _notsoloed { false };
 };
 
 
@@ -126,17 +138,20 @@ struct Selected {};
 
 
 /**
- * @brief All of Sequentities (mutable) state, accessible from your application
+ * @brief All of Sequentities (mutable) state
+ *
+ * Accessible from your application via registry.ctx<Sequentity::State>();
  *
  */
 struct State {
 
     // Functional
-    bool playing { false };
     int current_time { 0 };
-    Vector2i range { 0, 100 };
+    int range[2] { 0, 100 };
 
-    Event* selection { nullptr };
+    Event*   selected_event { nullptr };
+    Track*   selected_track { nullptr };
+    Channel* selected_channel { nullptr };
 
     // Visual
     float zoom[2] { 250.0f, 20.0f };
@@ -189,7 +204,11 @@ inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
 
 
 /**
- * @brief Main window
+ * @brief Stateless class
+ *
+ * You can technically instantiate this per frame, but given
+ * that you pass a reference to your registry into it there may
+ * be savings made from instantiating once and reusing it.
  *
  */
 struct Sequentity {
@@ -197,17 +216,10 @@ struct Sequentity {
     // Sequentity reads Event and Channel components from your EnTT registry
     // but the involvement of EnTT is minimal and easily replaced by your own
     // implementation. See any reference to _registry below.
-    Sequentity(entt::registry& registry);
+    Sequentity(entt::registry& registry) : _registry(registry) {}
 
     void draw(bool* p_open = nullptr);
-    void drawThemeEditor(bool* p_open = nullptr);
-
-    void update();
-    void clear();
-
-    void play();
-    void step(int delta);
-    void stop();
+    void draw_theme_editor(bool* p_open = nullptr);
 
     /**  Find intersecting events
      *
@@ -219,31 +231,18 @@ struct Sequentity {
      * event           |
      *
      */
-    const Event* overlapping(const Track& channel);
     void each_overlapping(const Track& channel, OverlappingCallback func);
-
-
-public:
-    // Callbacks
-    void before_time_changed(TimeChangedCallback func) { _before_time_changed = func; }
-    void after_time_changed(TimeChangedCallback func) { _after_time_changed = func; }
 
 private:
     entt::registry& _registry;
-    int _previous_time { 0 };
-
-    TimeChangedCallback _before_time_changed = []() {};
-    TimeChangedCallback _after_time_changed = []() {};
-
-    void _sort();
-    void _on_new_track();
+    void _solo(Track& track);
 };
 
 
 /**
  * @brief A summary of all colours available to Sequentity
  *
- * Hint: These can be edited interactively via the `drawThemeEditor()` window
+ * Hint: These can be edited interactively via the `draw_theme_editor()` window
  *
  */
 
@@ -251,6 +250,7 @@ static struct GlobalTheme_ {
     ImVec4 dark         { ImColor::HSV(0.0f, 0.0f, 0.3f) };
     ImVec4 shadow       { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
+    bool bling { true };  // Add some unnecessary but pretty flare, like shadows. Disable for performance
     float border_width { 1.0f };
     float track_height { 25.0f };
     float transition_speed { 0.2f };
@@ -259,15 +259,15 @@ static struct GlobalTheme_ {
 
 
 static struct ListerTheme_ {
-    ImVec4 background  { ImColor::HSV(0.0f, 0.0f, 0.051f) };
-    ImVec4 alternate   { ImColor::HSV(0.0f, 0.00f, 1.0f, 0.02f) };
+    ImVec4 background  { ImColor::HSV(0.0f, 0.0f, 0.188f) };
+    ImVec4 alternate   { ImColor::HSV(0.0f, 0.0f, 1.0f, 0.02f) };
     ImVec4 text        { ImColor::HSV(0.0f, 0.0f, 0.850f) };
     ImVec4 dark        { ImColor::HSV(0.0f, 0.0f, 0.100f) };
     ImVec4 mid         { ImColor::HSV(0.0f, 0.0f, 0.314f) };
     ImVec4 accent      { ImColor::HSV(0.0f, 0.75f, 0.750f) };
-    ImVec4 outline       { ImColor::HSV(0.0f, 0.0f, 0.1f) };
+    ImVec4 outline     { ImColor::HSV(0.0f, 0.0f, 0.1f) };
 
-    float width { 150.0f };
+    float width { 180.0f };
 
 } ListerTheme;
 
@@ -309,72 +309,16 @@ static struct EditorTheme_ {
 } EditorTheme;
 
 
-Sequentity::Sequentity(entt::registry& registry) : _registry(registry) {
-    
-    // Store state such that it is accessible externally
-    registry.ctx_or_set<State>();
-
-    registry.on_construct<Track>().connect<&Sequentity::_on_new_track>(*this);
-}
-
-
-void Sequentity::_on_new_track() {
-    _sort();
-}
-
-
-void Sequentity::_sort() {
-    _registry.sort<Index>([this](const entt::entity lhs, const entt::entity rhs) {
-        return _registry.get<Index>(lhs).absolute < _registry.get<Index>(rhs).absolute;
+void Sequentity::_solo(Track& track) {
+    bool any_solo { false };
+    _registry.view<Track>().each([&any_solo](auto& track) {
+        if (track.solo) any_solo = true;
+        track._notsoloed = false;
     });
-}
 
-
-void Sequentity::clear() {
-    Registry.reset<Track>();
-}
-
-
-void Sequentity::play() {
-    _registry.ctx<State>().playing ^= true;
-}
-
-
-void Sequentity::stop() {
-    auto& state = _registry.ctx<State>();
-
-    state.current_time = state.range.x();
-    state.playing = false;
-}
-
-
-void Sequentity::update() {
-    auto& state = _registry.ctx<State>();
-
-    if (state.playing) {
-        step(1);
-    }
-
-    if (state.current_time != _previous_time) {
-        _after_time_changed();
-        _previous_time = state.current_time;
-    }
-}
-
-
-void Sequentity::step(int delta) {
-    auto& state = _registry.ctx<State>();
-    auto time = state.current_time + delta;
-
-    if (time > state.range.y()) {
-        time = state.range.x();
-    }
-
-    else if (time < state.range.x()) {
-        time = state.range.y();
-    }
-
-    state.current_time = time;
+    if (any_solo) _registry.view<Track>().each([](auto& track) {
+        track._notsoloed = !track.solo;
+    });
 }
 
 
@@ -385,39 +329,22 @@ bool contains(const Event& event, int time) {
     );
 }
 
-const Event* Sequentity::overlapping(const Track& track) {
-    const Event* intersecting { nullptr };
-
-    for (auto& [type, channel] : track.channels) {
-        for (auto& event : channel.events) {
-            if (event.removed) continue;
-            if (!event.enabled) continue;
-
-            if (contains(event, _registry.ctx<State>().current_time)) {
-                intersecting = &event;
-
-                // Ignore overlapping
-                // TODO: Remove underlapping
-                break;
-            }
-        }
-    }
-    return intersecting;
-}
-
 
 void Sequentity::each_overlapping(const Track& track, OverlappingCallback func) {
     for (auto& [type, channel] : track.channels) {
+        if (track.mute) continue;
+        if (track._notsoloed) continue;
+
         for (auto& event : channel.events) {
             if (event.removed) continue;
             if (!event.enabled) continue;
-            if (contains(event, _registry.ctx<State>().current_time)) func(event);
+            if (contains(event, _registry.ctx_or_set<State>().current_time)) func(event);
         }
     }
 }
 
 
-void Sequentity::drawThemeEditor(bool* p_open) {
+void Sequentity::draw_theme_editor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
     {
         if (ImGui::CollapsingHeader("Global")) {
@@ -479,7 +406,7 @@ void Sequentity::draw(bool* p_open) {
         current += delta * velocity;
     };
 
-    auto& state = _registry.ctx<State>();
+    auto& state = _registry.ctx_or_set<State>();
     transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
     transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
     transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
@@ -517,8 +444,8 @@ void Sequentity::draw(bool* p_open) {
 
         float zoom_ = state.zoom[0] / state.stride;
         int stride_ = state.stride * 5;  // How many frames to skip drawing
-        int minTime = state.range.x() / stride_;
-        int maxTime = state.range.y() / stride_;
+        int minTime = state.range[0] / stride_;
+        int maxTime = state.range[1] / stride_;
 
         // TODO: What is this value?
         auto multiplier = zoom_ / stride_;
@@ -546,23 +473,25 @@ void Sequentity::draw(bool* p_open) {
         };
 
         auto ListerBackground = [&]() {
-            // Drop Shadow
-            painter->AddRectFilled(
-                A,
-                A + ImVec2{ ListerTheme.width + 3.0f, windowSize.y },
-                ImColor(0.0f, 0.0f, 0.0f, 0.1f)
-            );
-            painter->AddRectFilled(
-                A,
-                A + ImVec2{ ListerTheme.width + 2.0f, windowSize.y },
-                ImColor(0.0f, 0.0f, 0.0f, 0.2f)
-            );
+            if (GlobalTheme.bling) {
+                // Drop Shadow
+                painter->AddRectFilled(
+                    A,
+                    A + ImVec2{ ListerTheme.width + 3.0f, windowSize.y },
+                    ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+                );
+                painter->AddRectFilled(
+                    A,
+                    A + ImVec2{ ListerTheme.width + 2.0f, windowSize.y },
+                    ImColor(0.0f, 0.0f, 0.0f, 0.2f)
+                );
+            }
 
             // Fill
             painter->AddRectFilled(
                 A,
                 A + ImVec2{ ListerTheme.width, windowSize.y },
-                ImColor(ListerTheme.background)
+                ImColor(ImGui::GetStyleColorVec4(ImGuiCol_TitleBg))
             );
 
             // Border
@@ -573,17 +502,19 @@ void Sequentity::draw(bool* p_open) {
         };
 
         auto TimelineBackground = [&]() {
-            // Drop Shadow
-            painter->AddRectFilled(
-                B,
-                B + ImVec2{ windowSize.x, TimelineTheme.height + 3.0f },
-                ImColor(0.0f, 0.0f, 0.0f, 0.1f)
-            );
-            painter->AddRectFilled(
-                B,
-                B + ImVec2{ windowSize.x, TimelineTheme.height + 2.0f },
-                ImColor(0.0f, 0.0f, 0.0f, 0.2f)
-            );
+            if (GlobalTheme.bling) {
+                // Drop Shadow
+                painter->AddRectFilled(
+                    B,
+                    B + ImVec2{ windowSize.x, TimelineTheme.height + 3.0f },
+                    ImColor(0.0f, 0.0f, 0.0f, 0.1f)
+                );
+                painter->AddRectFilled(
+                    B,
+                    B + ImVec2{ windowSize.x, TimelineTheme.height + 2.0f },
+                    ImColor(0.0f, 0.0f, 0.0f, 0.2f)
+                );
+            }
 
             // Fill
             painter->AddRectFilled(
@@ -712,12 +643,11 @@ void Sequentity::draw(bool* p_open) {
             ImVec2 size { 10.0f, 20.0f };
             auto topPos = ImVec2{ xMin, yMin };
 
-            std::string id { "##indicator" };
-            id += std::to_string(indicator_count);
-
+            ImGui::PushID(indicator_count);
             ImGui::SetCursorPos(topPos - ImVec2{ size.x, size.y } - ImGui::GetWindowPos());
             ImGui::SetItemAllowOverlap(); // Prioritise the last drawn (shouldn't this be the default?)
-            ImGui::InvisibleButton(id.c_str(), size * 2.0f);
+            ImGui::InvisibleButton("##indicator", size * 2.0f);
+            ImGui::PopID();
 
             static unsigned int initial_time { 0 };
             if (ImGui::IsItemActivated()) {
@@ -848,7 +778,7 @@ void Sequentity::draw(bool* p_open) {
         auto Events = [&]() {
             ImVec2 cursor { C.x + state.pan[0], C.y + state.pan[1] };
 
-            _registry.view<Index, Track>().each<Index>([&](const auto, auto& track) {
+            _registry.view<Track>().each([&](auto& track) {
                 Header(track, cursor);
 
                 // Give each event a unique ImGui ID
@@ -882,17 +812,18 @@ void Sequentity::draw(bool* p_open) {
                             |______|______________________|______|
 
                         */
-                        auto head_id = std::string{ "##event-head" } + track.label + std::to_string(event_count);
-                        auto body_id = std::string{ "##event-body" } + track.label + std::to_string(event_count);
-                        auto tail_id = std::string{ "##event-tail" } + track.label + std::to_string(event_count);
 
+                        ImGui::PushID(track.label);
+                        ImGui::PushID(event_count);
                         ImGui::SetCursorPos(cursor + pos - ImGui::GetWindowPos());
                         ImGui::SetItemAllowOverlap();
-                        ImGui::InvisibleButton(body_id.c_str(), size);
+                        ImGui::InvisibleButton("##event", size);
+                        ImGui::PopID();
+                        ImGui::PopID();
 
                         ImVec4 color = channel.color;
 
-                        if (!event.enabled) {
+                        if (!event.enabled || track.mute || track._notsoloed) {
                             color = ImColor::HSV(0.0f, 0.0f, 0.5f);
                         }
 
@@ -905,15 +836,15 @@ void Sequentity::draw(bool* p_open) {
 
                         if (ImGui::IsItemActivated()) {
                             initial_time = event.time;
-                            state.selection = &event;
+                            state.selected_event = &event;
                         }
 
                         if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
                             float delta = ImGui::GetMouseDragDelta().x;
                             event.time = initial_time + px_to_time(delta);
                             event.removed = (
-                                event.time > state.range.y() ||
-                                event.time + event.length < state.range.x()
+                                event.time > state.range[1] ||
+                                event.time + event.length < state.range[0]
                             );
 
                             event.enabled = !event.removed;
@@ -943,7 +874,7 @@ void Sequentity::draw(bool* p_open) {
                             ImColor(color * 0.8f), EditorTheme.radius
                         );
 
-                        if (ImGui::IsItemHovered() || ImGui::IsItemActive() || state.selection == &event) {
+                        if (ImGui::IsItemHovered() || ImGui::IsItemActive() || state.selected_event == &event) {
                             painter->AddRect(
                                 cursor + pos        + event.thickness * 0.25f,
                                 cursor + pos + size - event.thickness * 0.25f,
@@ -996,8 +927,8 @@ void Sequentity::draw(bool* p_open) {
 
         auto Range = [&]() {
             ImVec2 cursor { C.x, C.y };
-            ImVec2 range_cursor_start { state.range.x() * zoom_ / stride_ + state.pan[0], TimelineTheme.height };
-            ImVec2 range_cursor_end { state.range.y() * zoom_ / stride_ + state.pan[0], TimelineTheme.height };
+            ImVec2 range_cursor_start { state.range[0] * zoom_ / stride_ + state.pan[0], TimelineTheme.height };
+            ImVec2 range_cursor_end { state.range[1] * zoom_ / stride_ + state.pan[0], TimelineTheme.height };
 
             painter->AddRectFilled(
                 cursor + ImVec2{ 0.0f, 0.0f },
@@ -1012,47 +943,63 @@ void Sequentity::draw(bool* p_open) {
             );
         };
 
+        auto Button = [](const char* label, bool& checked, ImVec2 size = { 20.0f, 20.0f }) -> bool {
+            if (checked) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.25f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.15f));
+            }
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 0.1f));
+            }
+
+            const bool pressed = ImGui::Button(label, size);
+
+            if (checked) ImGui::PopStyleColor(2);
+            else         ImGui::PopStyleColor(1);
+
+            if (pressed) checked ^= true;
+
+            return pressed;
+        };
+
         /**
          * @brief Outliner-style listing of available channels
          *
-         *  ______________
-         * |              |
-         * | chan A       |
-         * |  |-o type 1  |
-         * |  |-o type 2  |
-         * | chan B       |
-         * |  |-o type 1  |
-         * | chan C       |
-         * |  |-o type 1  |
-         * |  |-o type 2  |
-         * |  |-o type 3  |
-         * | chan D       |
-         * | ...          |
-         * |              |
-         * |______________|
+         *  ______________________________
+         * |  _  _  _                     |
+         * | |_||_||_|       track A      |
+         * |                  |-o chan 1  |
+         * |  _  _  _         |-o chan 2  |
+         * | |_||_||_|       track B      |
+         * |  _  _  _         |-o chan 1  |
+         * | |_||_||_|       track C      |
+         * |                  |-o chan 1  |
+         * |                  |-o chan 2  |
+         * |  _  _  _         |-o chan 3  |
+         * | |_||_||_|       track D      |
+         * |                 ...          |
+         * |                              |
+         * |______________________________|
          *
          *
          */
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
 
-            _registry.view<Index, Track>().each<Index>([&](const auto&, auto& track) {
+            _registry.view<Track>().each([&](auto& track) {
 
                 // Draw track header
-                //  _________________________________________
-                // |_________________________________________|
+                //  __________________________________________
+                // |  ______ ______                         | |
+                // | | Mute | Solo |           Track        | |
+                // |________________________________________|_|
                 //
+
                 const auto textSize = ImGui::CalcTextSize(track.label);
                 const auto pos = ImVec2{
                     ListerTheme.width - textSize.x - padding.x - padding.x,
                     GlobalTheme.track_height / 2.0f - textSize.y / 2.0f
                 };
-
-                painter->AddRectFilled(
-                    cursor,
-                    cursor + ImVec2{ ListerTheme.width, GlobalTheme.track_height },
-                    ImColor(ListerTheme.dark)
-                );
 
                 painter->AddRectFilled(
                     cursor + ImVec2{ ListerTheme.width - 5.0f, 0.0f },
@@ -1064,6 +1011,18 @@ void Sequentity::draw(bool* p_open) {
                     cursor + pos, ImColor(ListerTheme.text), track.label
                 );
 
+                ImGui::SetCursorPos(cursor + ImVec2{ padding.x, 0.0f } - ImGui::GetWindowPos());
+                ImGui::PushID(track.label);
+                Button("m", track.mute, { GlobalTheme.track_height, GlobalTheme.track_height });
+                ImGui::SameLine();
+
+                if (Button("s", track.solo, { GlobalTheme.track_height, GlobalTheme.track_height })) {
+                    _solo(track);
+                }
+
+                ImGui::PopID();
+
+                const auto track_corner = cursor;
                 cursor.y += GlobalTheme.track_height;
 
                 // Draw channels
@@ -1107,8 +1066,21 @@ void Sequentity::draw(bool* p_open) {
                     // Next channel
                     cursor.y += state.zoom[1] + EditorTheme.spacing;
                 }
+
                 // Next track
                 cursor.y += padding.y;
+
+                // Visualise mute and solo state
+                if (track.mute || track._notsoloed) {
+                    ImVec4 faded = ListerTheme.background;
+                    faded.w = 0.8f;
+
+                    painter->AddRectFilled(
+                        track_corner + ImVec2{ pos.x, 0.0f },
+                        track_corner + ImVec2{ ListerTheme.width, cursor.y },
+                        ImColor(faded)
+                    );
+                }
             });
         };
 
@@ -1125,9 +1097,9 @@ void Sequentity::draw(bool* p_open) {
 
         // Can intercept mouse events
         bool hovering_background { true };
-        TimeIndicator(state.range.x(), TimelineTheme.start_time, EditorTheme.start_time);
+        TimeIndicator(state.range[0], TimelineTheme.start_time, EditorTheme.start_time);
         if (ImGui::IsItemHovered()) hovering_background = false;
-        TimeIndicator(state.range.y(), TimelineTheme.end_time, EditorTheme.end_time);
+        TimeIndicator(state.range[1], TimelineTheme.end_time, EditorTheme.end_time);
         if (ImGui::IsItemHovered()) hovering_background = false;
         TimeIndicator(state.current_time, TimelineTheme.current_time, EditorTheme.current_time);
         if (ImGui::IsItemHovered()) hovering_background = false;
@@ -1183,7 +1155,7 @@ void Sequentity::draw(bool* p_open) {
              *        |
              *        v
              */
-            ImGui::SetCursorPos({ 0.0f, TimelineTheme.height + titlebarHeight });
+            ImGui::SetCursorPos({ ListerTheme.width - 110.0f, TimelineTheme.height + titlebarHeight });
             ImGui::InvisibleButton("##pan[1]", ImVec2{ ListerTheme.width, windowSize.y });
 
             if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);

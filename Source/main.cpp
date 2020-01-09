@@ -28,9 +28,9 @@ static entt::registry Registry;
 #include "Utils.hpp"
 #include "Theme.inl"
 #include "Components.inl"
+#include "Widgets.inl"
 #include "Sequentity.inl"
 #include "Tools.inl"
-#include "Widgets.inl"
 
 
 class Application : public Platform::Application {
@@ -42,11 +42,16 @@ public:
     void drawTransport();
     void drawCentralWidget();
 
+    void play();
+    void step(int time);
+    void stop();
+
     void setup();  // Populate registry with entities and components
     void reset();  // Reset all entities
     void clear();  // Clear all events
 
     void onTimeChanged(); // Apply active events from Sequentity
+    void onNewTrack();
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -66,7 +71,9 @@ private:
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
+    bool _playing { false };
     bool _running { true };
+    int _previous_time { 0 };
 
     Tool _activeTool { ToolType::Translate, TranslateTool };
     Tool _previousTool { ToolType::Translate, TranslateTool };
@@ -143,9 +150,6 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     this->setSwapInterval(1);  // VSync
 
-    _sequentity.after_time_changed([this]() { onTimeChanged(); });
-    _sequentity.play();
-
     // Synchronise Sequentity with our internal application selection
     Registry.on_construct<Selected>().connect<on_select_constructed>();
     Registry.on_destroy<Selected>().connect<on_select_destroyed>();
@@ -154,7 +158,22 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     Registry.on_construct<Position>().connect<on_position_constructed>();
     Registry.on_construct<Size>().connect<on_size_constructed>();
 
+    // Keep tracks sorted in the order of our application Index component
+    // E.g. in the order of your 3D character hierarchy
+    Registry.on_construct<Sequentity::Track>().connect<&Application::onNewTrack>(*this);
+
+    // Initialise internal state
+    Registry.set<Sequentity::State>();
+
     setup();
+    play();
+}
+
+
+void Application::onNewTrack() {
+    Registry.sort<Sequentity::Track>([this](const entt::entity lhs, const entt::entity rhs) {
+        return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
+    });
 }
 
 
@@ -203,7 +222,6 @@ void Application::setup() {
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f));
     Registry.assign<Orientation>(purple, 0.0_degf);
     Registry.assign<Position>(purple, 350, 200 + 50);
-    Registry.assign<InitialPosition>(purple, 350, 200 + 50);
 
     Registry.assign<Name>(gray, "Gray Rectangle");
     Registry.assign<Index>(gray, 5);
@@ -214,16 +232,45 @@ void Application::setup() {
 }
 
 
+void Application::play() {
+    _playing ^= true;
+}
+
+
+void Application::step(int delta) {
+    auto& state = Registry.ctx_or_set<Sequentity::State>();
+    auto time = state.current_time + delta;
+
+    if (time > state.range[1]) {
+        time = state.range[0];
+    }
+
+    else if (time < state.range[0]) {
+        time = state.range[1];
+    }
+
+    state.current_time = time;
+}
+
+
+void Application::stop() {
+    auto& state = Registry.ctx_or_set<Sequentity::State>();
+
+    state.current_time = state.range[0];
+    _playing = false;
+}
+
+
 void Application::onTimeChanged() {
-    auto& sqstate = Registry.ctx<Sequentity::State>();
-    auto startTime = sqstate.range.x();
-    auto current_time = sqstate.current_time;
+    auto& state = Registry.ctx<Sequentity::State>();
+    auto startTime = state.range[0];
+    auto current_time = state.current_time;
 
     if (!Registry.empty<Deactivated>()) {
         Registry.reset<Abort>();
     }
 
-    if (current_time >= sqstate.range.y()) {
+    if (current_time >= state.range[1]) {
         Registry.view<Active>().each([](auto entity, const auto) {
             Registry.assign_or_replace<Abort>(entity);
         });
@@ -278,6 +325,7 @@ auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
 
 void Application::reset() {
+    // TODO: Reset to first frame of each event, rather than this additional "Initial" component
     Registry.view<Position, InitialPosition>().each([&](auto& position, const auto& initial) {
         position = initial;
     });
@@ -310,6 +358,11 @@ void Application::clear() {
                     deletedCount++;
                 }
 
+                else if (type == ScaleEvent) {
+                    delete static_cast<ScaleEventData*>(event.data);
+                    deletedCount++;
+                }
+
                 else {
                     Warning() << "Unknown event type" << event.type << "memory has leaked!";
                 }
@@ -317,9 +370,11 @@ void Application::clear() {
         }
     });
 
-    if (deletedCount) Debug() << "Deleted" << deletedCount << "events";
-    _sequentity.clear();
+    Registry.reset<Sequentity::Track>();
+
     reset();
+
+    if (deletedCount) Debug() << "Deleted" << deletedCount << "events";
 }
 
 
@@ -375,19 +430,19 @@ void Application::drawCentralWidget() {
 
 
 void Application::drawTransport() {
-    auto& sqstate = Registry.ctx<Sequentity::State>();
+    auto& state = Registry.ctx<Sequentity::State>();
 
     ImGui::Begin("Transport", nullptr);
     {
-        if (ImGui::Button("Play")) _sequentity.play();
+        if (ImGui::Button("Play")) this->play();
         ImGui::SameLine();
-        if (ImGui::Button("<")) _sequentity.step(-1);
+        if (ImGui::Button("<")) this->step(-1);
         ImGui::SameLine();
-        if (ImGui::Button(">")) _sequentity.step(1);
+        if (ImGui::Button(">")) this->step(1);
 
         ImGui::SameLine();
         if (ImGui::Button("Abort")) {
-            _sequentity.stop();
+            this->stop();
         }
 
         ImGui::SameLine();
@@ -395,34 +450,34 @@ void Application::drawTransport() {
             clear();
         }
 
-        ImGui::DragInt("Time", &sqstate.current_time, 1.0f, sqstate.range.x(), sqstate.range.y());
+        ImGui::DragInt("Time", &state.current_time, 1.0f, state.range[0], state.range[1]);
 
-        if (ImGui::DragInt2("Range", sqstate.range.data())) {
-            if (sqstate.range.x() < 0) sqstate.range.x() = 0;
-            if (sqstate.range.y() < 5) sqstate.range.y() = 5;
+        if (ImGui::DragInt2("Range", state.range)) {
+            if (state.range[0] < 0) state.range[0] = 0;
+            if (state.range[1] < 5) state.range[1] = 5;
 
-            if (sqstate.current_time < sqstate.range.x()) {
-                sqstate.current_time = sqstate.range.x();
+            if (state.current_time < state.range[0]) {
+                state.current_time = state.range[0];
             }
 
-            if (sqstate.current_time > sqstate.range.y()) {
-                sqstate.current_time = sqstate.range.y();
+            if (state.current_time > state.range[1]) {
+                state.current_time = state.range[1];
             }
         }
 
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("##zoom", &sqstate.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
+        ImGui::SliderFloat("##zoom", &state.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("Zoom", &sqstate.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Pan", sqstate.target_pan);
-        ImGui::SliderInt("Stride", &sqstate.stride, 1, 5);
+        ImGui::SliderFloat("Zoom", &state.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
+        ImGui::DragFloat2("Pan", state.target_pan);
+        ImGui::SliderInt("Stride", &state.stride, 1, 5);
     }
     ImGui::End();
 }
 
 
 void Application::drawScene() {
-    auto& sqstate = Registry.ctx<Sequentity::State>();
+    auto& state = Registry.ctx<Sequentity::State>();
 
     ImGui::Begin("3D Viewport", nullptr);
     {
@@ -461,12 +516,12 @@ void Application::drawScene() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = sqstate.current_time + (sqstate.playing ? 1 : 0);
+            auto time = state.current_time + (_playing ? 1 : 0);
             bool selected = Registry.has<Selected>(entity);
             Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
             if (ImGui::IsItemActivated()) {
-                Registry.assign<Activated>(entity, sqstate.current_time);
+                Registry.assign<Activated>(entity, state.current_time);
                 Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
             }
 
@@ -512,7 +567,18 @@ void Application::drawEvent() {
     // Handle any input coming from the above drawScene()
     _activeTool.system();
 
-    _sequentity.update();
+    auto& state = Registry.ctx_or_set<Sequentity::State>();
+
+    if (_playing) step(1);
+
+    // current_time is *mutable* and can change from anywhere
+    // Thus, we compare it against the previous time change to
+    // determine whether or not it has changed.
+    if (state.current_time != _previous_time) {
+        onTimeChanged();
+        _previous_time = state.current_time;
+    }
+
     _sequentity.draw(&_showSequencer);
 
     // Erase all current inputs
@@ -531,7 +597,7 @@ void Application::drawEvent() {
     }
 
     if (_showStyleEditor) {
-        _sequentity.drawThemeEditor();
+        _sequentity.draw_theme_editor();
         ImGui::ShowStyleEditor();
     }
 
@@ -571,7 +637,7 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Enter)        redraw();
     if (event.key() == KeyEvent::Key::Delete)       clear();
     if (event.key() == KeyEvent::Key::Backspace)    { _running ^= true; if (_running) redraw(); }
-    if (event.key() == KeyEvent::Key::Space)        { _sequentity.play(); }
+    if (event.key() == KeyEvent::Key::Space)        { this->play(); }
     if (event.key() == KeyEvent::Key::F1)           _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;

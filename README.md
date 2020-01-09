@@ -5,9 +5,12 @@ Just started working on this, come back another time for images, docs and other 
 <br>
 <br>
 
-### Sequentity - A MIDI-like sequencer/tracker for C++ and ImGui
+### Sequentity - A sequencer widget for ImGui
 
-Written in C++ with ImGui, Magnum and EnTT.
+**Similar Projects**
+
+- https://github.com/CedricGuillemet/ImGuizmo#imsequencer
+- Your project here
 
 **Libraries**
 
@@ -36,6 +39,8 @@ Written in C++ with ImGui, Magnum and EnTT.
 - [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
 - [ ] **Stride** There are a few values that work, but make no sense, like `stride`
 - [ ] **Bug, hot-swap tool** Translate something and switch tool without letting go
+- [ ] **Bug, event at end** Click to add an event on the end frame, and it'll create one erroneously
+- [ ] **Cosmetics, transitions** Duration of transitions is based on a solid 60 fps, should be relative wallclock time
 - [x] **Refactor, Unify data types** Data types in Sequentity is a mixture of native, Magnum and ImGui.
 - [x] **Smooth Panning and Zooming** Any change to these have a nice smoothing effect
 - [x] **Drag Current Time** You can, but it won't trigger the time-changed callback
@@ -61,25 +66,118 @@ Unrelated to the sequencer, but to the example implementation.
 
 ### Usage
 
+Sequentity can draw events in time, and facilitate edits to be made to those events interactively by the user. It's got a sense of time, which means you're able to query it for events that overlap with the current time.
+
+Here's how you draw.
+
 ```cpp
-entt::registry& registry;
+/* Sequentity automatically sorts */
 Sequentity::Sequentity sequentity { registry };
 
+entt::registry& registry;
 entity = registry.create();
-auto& track = registry.assign<Sequentity::Track>("my first track");
+
+auto& track = registry.assign<Sequentity::Track>(entity); {
+    track.label = "My first track";
+    track.color = ImColor::HSV(0.0f, 0.5f, 0.75f);
+}
 
 Sequentity::Channel channel; {
     channel.label = "My first channel";
-    channel.color = ImColor::HSV(0.0f, 0.5f, 0.75f);
+    channel.color = ImColor::HSV(0.33f, 0.5f, 0.75f);
 }
+
+// Events may carry application data and a type for you to identify it with
+struct MyEventData {
+    float value { 0.0f };
+};
+
+enum {
+    MyEventType = 0
+};
+
+
+auto* data = new MyEventData{ 5.0f };
 
 Sequentity::Event event; {
+    event.time = 1;
+    event.length = 50;
+    event.color ImColor::HSV(0.66f, 0.5f, 0.75f);
 
+    // Application data, Sequentity won't touch it,
+    // which means it's your memory to manage
+    event.type = MyEventType;
+    event.data = static_cast<void*>(data);
 }
 
+
+/* Tracks carry channels which carry events */
 channel.events.push_back(event);
 track.channels.push_back(channel);
+
+sequentity.draw();
 ```
+
+And here's how you query.
+
+```cpp
+registry.view<Sequentity::Track>().each([](auto& track) {
+    sequentity.each_overlapping([](const auto& event) {
+        if (event.type == MyEventType) {
+            auto& data = static_cast<MyEventData*>(event.data);
+
+            // Do something with it
+            event.time
+            event.length
+        }
+    });
+})
+```
+
+The example application uses events for e.g. translations, storing a vector of integer pairs representing position. For each frame, data per entity is retrieved from the current event and correlated to a position by computing the time relative the start of an event.
+
+<br>
+
+#### Sorting
+
+Tracks are sorted in the order of their EnTT pool.
+
+```cpp
+Registry.sort<Sequentity::Track>([this](const entt::entity lhs, const entt::entity rhs) {
+    return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
+});
+```
+
+<br>
+
+### State
+
+Sequentity is a struct that you instantiate, but it doesn't hold any state. State is instead held by the `State` struct which is accessible from anywhere. In the example application, it is used to draw the Transport panel with play, stop and visualisation of current time.
+
+```cpp
+auto& state = registry.ctx<Sequentity::State>();
+```
+
+When state is first accessed, if `State` has not already been created in the given registry, a new instance will be created. You may want state created by you, in which case you can assign it prior to calling Sequentity.
+
+```cpp
+auto& state = registry.set<Sequentity::State>();
+state.current_time = 10;
+
+// E.g.
+Sequentity::Sequentity sequentity;
+sequentity.draw();
+```
+
+Now the current time in Sequentity is 10.
+
+<br>
+
+### Serialisation
+
+All data comes in the form of components with plain-old-data, including state like panning and zooming.
+
+TODO
 
 <br>
 
@@ -93,12 +191,6 @@ As a sequencer, time is central. But who's owns time? In the case of Sequentity,
 auto& state = registry.ctx<Sequentity::State>();
 
 ```
-
-<br>
-
-### Serialisation
-
-All data comes in the form of components with plain-old-data, including state like panning and zooming.
 
 <br>
 

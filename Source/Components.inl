@@ -13,10 +13,7 @@ struct StartPosition : Position {};
 struct Size : Position {};
 struct InitialSize : Size {};
 
-struct Index {
-    int absolute { 0 };
-    int relative { 0 };
-};
+using Index = unsigned int;
 
 struct Selected {};
 

@@ -127,9 +127,12 @@ static void TranslateTool() {
         }
 
         // The default name for any new track is coming from the owning entity
-        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
-        bool has_channel = track.channels.count(TranslateEvent);
+        if (!Registry.has<Sequentity::Track>(entity)) {
+            Registry.assign<Sequentity::Track>(entity, name.text, color);
+        }
 
+        auto& track = Registry.get<Sequentity::Track>(entity);
+        bool has_channel = track.channels.count(TranslateEvent);
         auto& channel = track.channels[TranslateEvent];
         channel.events.push_back(event);
 
@@ -146,7 +149,10 @@ static void TranslateTool() {
                                                                            const auto&,
                                                                            const auto& input,
                                                                            auto& track) {
-        if (!track.channels.count(TranslateEvent)) { Warning() << "This should never happen"; return; }
+        if (!track.channels.count(TranslateEvent)) {
+            Warning() << "TranslateTool on" << track.label << "didn't have a TranslateEvent";
+            return;
+        }
 
         auto& channel = track.channels[TranslateEvent];
         auto& event = channel.events.back();
@@ -195,7 +201,11 @@ static void RotateTool() {
             event.data = static_cast<void*>(data);
         }
 
-        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
+        if (!Registry.has<Sequentity::Track>(entity)) {
+            Registry.assign<Sequentity::Track>(entity, name.text, color);
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(entity);
         bool has_channel = track.channels.count(RotateEvent);
 
         auto& channel = track.channels[RotateEvent];
@@ -214,7 +224,7 @@ static void RotateTool() {
                                                                            const auto&,
                                                                            const auto& input,
                                                                            auto& track) {
-        if (!track.channels.count(RotateEvent)) { Warning() << "This should never happen"; return; }
+        if (!track.channels.count(RotateEvent)) { Warning() << "RotateTool: This should never happen"; return; }
 
         auto& channel = track.channels[RotateEvent];
         auto& event = channel.events.back();
@@ -263,7 +273,11 @@ static void ScaleTool() {
             event.data = static_cast<void*>(data);
         }
 
-        auto& track = Registry.get_or_assign<Sequentity::Track>(entity, name.text, color);
+        if (!Registry.has<Sequentity::Track>(entity)) {
+            Registry.assign<Sequentity::Track>(entity, name.text, color);
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(entity);
         bool has_channel = track.channels.count(ScaleEvent);
 
         auto& channel = track.channels[ScaleEvent];
@@ -282,7 +296,7 @@ static void ScaleTool() {
                                                                            const auto&,
                                                                            const auto& input,
                                                                            auto& track) {
-        if (!track.channels.count(ScaleEvent)) { Warning() << "This should never happen"; return; }
+        if (!track.channels.count(ScaleEvent)) { Warning() << "ScaleTool: This should never happen"; return; }
 
         auto& channel = track.channels[ScaleEvent];
         auto& event = channel.events.back();
