@@ -29,7 +29,11 @@ static entt::registry Registry;
 #include "Theme.inl"
 #include "Components.inl"
 #include "Widgets.inl"
-#include "Sequentity.inl"
+
+// Sequentity is a single-file library
+#define SEQUENTITY_IMPLEMENTATION
+#include "Sequentity.h"
+
 #include "Tools.inl"
 
 

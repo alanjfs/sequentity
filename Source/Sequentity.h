@@ -1,42 +1,17 @@
 /**
 
----===  Sequentity  ===---
+Sequentity.h - v0.1 - A single-file, immediate-mode sequencer widget for C++17, Dear ImGui and EnTT
 
-An immediate-mode sequencer, written in C++ with ImGui, Magnum and EnTT
+Do this:
 
----=== === === === === ---
+    #define SEQUENTITY_IMPLEMENTATION
 
-- ~2,000 vertices with 15 events, about 1,500 without any
-- Magnum is an open-source OpenGL wrapper with window management and math library baked in
-- EnTT is a entity-component-system (ECS) framework
-
-Both of which are optional and unrelated to the sequencer itself, but needed
-to get a window on screen and to manage relevant data.
-
-
-### Legend
-
-- Event:   An individual coloured bar, with a start, length and additional metadata
-- Channel: A vector of Events
-- Track: A vector of Channels
-
- ___________ __________________________________________________
-|           |                                                  |
-|-----------|--------------------------------------------------|
-| Track     |                                                  |
-|   Channel |  Event Event Event                               |
-|   Channel |  Event Event Event                               |
-|   Channel |  Event Event Event                               |
-|   ...     |  ...                                             |
-|___________|__________________________________________________|
-
-
-### Usage
-
-Data is passed between Sequentity and your host application via the Event
-and Channel structs below.
+before you include this file in *one* C++ (17 and above) file to create the implementation.
 
 */
+
+#ifndef SEQUENTITY_H
+#define SEQUENTITY_H
 
 #include <functional>
 #include <vector>
@@ -174,6 +149,85 @@ struct State {
 
 
 /**
+ * @brief Yield all events that intersect the given track at the given time
+ *
+ * Use this to iterate over relevant events,
+ * passing in a function to operate on the result.
+ *
+ *                  time
+ *                    |
+ *       _____________|__________   ______
+ *      |_____________|__________| |______
+ *             _______|__________       __
+ *            |_______|__________|     |__
+ *       _____________|___
+ *      |_____________|___|
+ *      ^             |
+ *      .             |
+ *      .              
+ *    event            
+ *
+ *
+ */
+void Intersect(const Track& track, int time, IntersectFunc func);
+
+/**
+ * @brief Main call
+ *
+ */
+void Sequentity(entt::registry& registry, bool* p_open);
+
+
+/**
+ * @brief Optional theme editor
+ *
+ */
+void ThemeEditor(bool* p_open = nullptr);
+
+}
+
+#endif /* SEQUENTITY_H */
+
+
+/**
+
+Documentation
+=============
+
+- ~2,000 vertices with 15 events, about 1,500 without any
+- EnTT is a entity-component-system (ECS) framework used to host the data
+
+# Layout
+
+ ___________ __________________________________________________
+|           |                                                  |
+|-----------|--------------------------------------------------|
+| Track     |                                                  |
+|   Channel |  Event Event Event                               |
+|   Channel |  Event Event Event                               |
+|   Channel |  Event Event Event                               |
+|   ...     |  ...                                             |
+|___________|__________________________________________________|
+
+# Legend
+
+- Event:   An individual coloured bar, with a start, length and additional metadata
+- Channel: A vector of Events
+- Track:   A vector of Channels
+
+*/
+
+
+/*
+----------------------
+    IMPLEMENTATION
+----------------------
+*/
+
+#ifdef SEQUENTITY_IMPLEMENTATION
+#undef SEQUENTITY_IMPLEMENTATION
+
+/**
  * @brief Handy math overloads, for readability
  *
  */
@@ -222,7 +276,9 @@ static struct GlobalTheme_ {
     ImVec4 dark         { ImColor::HSV(0.0f, 0.0f, 0.3f) };
     ImVec4 shadow       { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
-    bool bling { true };  // Add some unnecessary but pretty flare, like shadows. Disable for performance
+    bool bling { true };        // Add some unnecessary but pretty flare, like shadows. Disable for performance
+    bool tint_track { true };   // Visually distinguish a track by its color
+
     float border_width { 1.0f };
     float track_height { 25.0f };
     float transition_speed { 0.2f };
@@ -286,14 +342,14 @@ static struct EditorTheme_ {
  * @brief Internal helper functions
  *
  */
-static void _solo(entt::registry& registry, Track& track) {
+inline void _solo(entt::registry& registry, Sequentity::Track& track) {
     bool any_solo { false };
-    registry.view<Track>().each([&any_solo](auto& track) {
+    registry.view<Sequentity::Track>().each([&any_solo](auto& track) {
         if (track.solo) any_solo = true;
         track._notsoloed = false;
     });
 
-    if (any_solo) registry.view<Track>().each([](auto& track) {
+    if (any_solo) registry.view<Sequentity::Track>().each([](auto& track) {
         track._notsoloed = !track.solo;
     });
 }
@@ -303,7 +359,7 @@ static void _solo(entt::registry& registry, Track& track) {
  * @brief Does the event intersect with this time?
  *
  */
-static bool _contains(const Event& event, int time) {
+inline bool _contains(const Sequentity::Event& event, int time) {
     return (
         event.time <= time &&
         event.time + event.length > time
@@ -327,25 +383,7 @@ static void _transition(float& current, float target, float velocity, float epsi
 };
 
 
-/**
- * @brief Yield all events that intersect the given track at the given time
- *
- * Use this to iterate over relevant events,
- * passing in a function to operate on the result.
- *
- *               time
- *                 |
- *    _____________|__________   ______
- *   |_____________|__________| |______
- *          _______|__________       __
- *         |_______|__________|     |__
- *    _____________|___
- *   |_____________|___|
- *   ^             |
- * event           |
- *
- */
-void Intersect(const Track& track, int time, IntersectFunc func) {
+void Sequentity::Intersect(const Sequentity::Track& track, int time, IntersectFunc func) {
     for (auto& [type, channel] : track.channels) {
         if (track.mute) continue;
         if (track._notsoloed) continue;
@@ -359,7 +397,7 @@ void Intersect(const Track& track, int time, IntersectFunc func) {
 }
 
 
-void Sequentity(entt::registry& registry, bool* p_open) {
+void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -695,7 +733,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
          *                         |_________________________|
          *
          */
-        auto Header = [&](const Track& track, ImVec2& cursor) {
+        auto Header = [&](const Sequentity::Track& track, ImVec2& cursor) {
             // Draw track header, a separator-like empty space
             // 
             // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
@@ -716,12 +754,14 @@ void Sequentity(entt::registry& registry, bool* p_open) {
                 ImColor(EditorTheme.background)
             );
 
-            // Tint empty area with the track color
-            painter->AddRectFilled(
-                ImVec2{ C.x, cursor.y },
-                ImVec2{ C.x, cursor.y } + size,
-                ImColor(track.color.x, track.color.y, track.color.z, 0.1f)
-            );
+            if (GlobalTheme.tint_track) {
+                // Tint empty area with the track color
+                painter->AddRectFilled(
+                    ImVec2{ C.x, cursor.y },
+                    ImVec2{ C.x, cursor.y } + size,
+                    ImColor(track.color.x, track.color.y, track.color.z, 0.1f)
+                );
+            }
 
             painter->AddRect(
                 ImVec2{ C.x, cursor.y },
@@ -735,7 +775,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
         auto Events = [&]() {
             ImVec2 cursor { C.x + state.pan[0], C.y + state.pan[1] };
 
-            registry.view<Track>().each([&](auto& track) {
+            registry.view<Sequentity::Track>().each([&](auto& track) {
                 Header(track, cursor);
 
                 // Give each event a unique ImGui ID
@@ -943,12 +983,12 @@ void Sequentity(entt::registry& registry, bool* p_open) {
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
 
-            registry.view<Track>().each([&](auto& track) {
+            registry.view<Sequentity::Track>().each([&](auto& track) {
 
                 // Draw track header
                 //  __________________________________________
                 // |  ______ ______                         | |
-                // | | Mute | Solo |           Track        | |
+                // | | Mute | Solo |           Sequentity::Track        | |
                 // |________________________________________|_|
                 //
 
@@ -1130,7 +1170,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
 }
 
 
-void ThemeEditor(bool* p_open = nullptr) {
+void Sequentity::ThemeEditor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
     {
         if (ImGui::CollapsingHeader("Global")) {
@@ -1175,4 +1215,5 @@ void ThemeEditor(bool* p_open = nullptr) {
     }
     ImGui::End();
 }
-}
+
+#endif /* SEQUENTITY_IMPLEMENTATION */
