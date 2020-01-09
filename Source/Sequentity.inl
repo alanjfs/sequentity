@@ -77,7 +77,7 @@ struct Event {
     /* Whether or not to consider this event */
     bool enabled { true };
 
-    /* Events are never really deleted, just hidden from view */
+    /* Events are never really deleted, just hidden from view and iterators */
     bool removed { false };
 
     /* Extend or reduce the length of an event */
@@ -128,13 +128,21 @@ struct Track {
 
 
 /**
- * @brief Callbacks
+ * Tag indicating whether a track is selected
+ *
+ * This can come in handy if you implement selection in your application
+ * and wish to synchronise the currently selected track with its associated entity
  *
  */
-using OverlappingCallback = std::function<void(const Event&)>;
-using TimeChangedCallback = std::function<void()>;
-
 struct Selected {};
+
+/**
+ * @brief Lambda signatures
+ *
+ */
+using IntersectFunc = std::function<void(const Event&)>;
+using IntersectWithPreviousFunc = std::function<void(const Event&, const Event&)>;
+using IntersectWithPreviousAndNextFunc = std::function<void(const Event&, const Event&, const Event&)>;
 
 
 /**
@@ -149,6 +157,7 @@ struct State {
     int current_time { 0 };
     int range[2] { 0, 100 };
 
+    // Selection
     Event*   selected_event { nullptr };
     Track*   selected_track { nullptr };
     Channel* selected_channel { nullptr };
@@ -168,7 +177,6 @@ struct State {
  * @brief Handy math overloads, for readability
  *
  */
-
 inline ImVec4 operator*(const ImVec4& vec, const float mult) {
     return ImVec4{ vec.x * mult, vec.y * mult, vec.z * mult, vec.w };
 }
@@ -206,10 +214,6 @@ inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
 /**
  * @brief Stateless class
  *
- * You can technically instantiate this per frame, but given
- * that you pass a reference to your registry into it there may
- * be savings made from instantiating once and reusing it.
- *
  */
 struct Sequentity {
 
@@ -219,23 +223,9 @@ struct Sequentity {
     Sequentity(entt::registry& registry) : _registry(registry) {}
 
     void draw(bool* p_open = nullptr);
-    void draw_theme_editor(bool* p_open = nullptr);
-
-    /**  Find intersecting events
-     *
-     *               time
-     *                 |
-     *    _____________|__________
-     *   |_____________|__________|
-     *   ^             |
-     * event           |
-     *
-     */
-    void each_overlapping(const Track& channel, OverlappingCallback func);
 
 private:
     entt::registry& _registry;
-    void _solo(Track& track);
 };
 
 
@@ -309,20 +299,25 @@ static struct EditorTheme_ {
 } EditorTheme;
 
 
-void Sequentity::_solo(Track& track) {
+
+/**
+ * @brief Internal helper functions
+ *
+ */
+static void _solo(entt::registry& registry, Track& track) {
     bool any_solo { false };
-    _registry.view<Track>().each([&any_solo](auto& track) {
+    registry.view<Track>().each([&any_solo](auto& track) {
         if (track.solo) any_solo = true;
         track._notsoloed = false;
     });
 
-    if (any_solo) _registry.view<Track>().each([](auto& track) {
+    if (any_solo) registry.view<Track>().each([](auto& track) {
         track._notsoloed = !track.solo;
     });
 }
 
 
-bool contains(const Event& event, int time) {
+static bool _contains(const Event& event, int time) {
     return (
         event.time <= time &&
         event.time + event.length > time
@@ -330,7 +325,21 @@ bool contains(const Event& event, int time) {
 }
 
 
-void Sequentity::each_overlapping(const Track& track, OverlappingCallback func) {
+/**  Find intersecting events in track @ time
+ *
+ *               time
+ *                 |
+ *    _____________|__________   ______
+ *   |_____________|__________| |______
+ *          _______|__________       __
+ *         |_______|__________|     |__
+ *    _____________|___
+ *   |_____________|___|
+ *   ^             |
+ * event           |
+ *
+ */
+void Intersect(const Track& track, int time, IntersectFunc func) {
     for (auto& [type, channel] : track.channels) {
         if (track.mute) continue;
         if (track._notsoloed) continue;
@@ -338,13 +347,13 @@ void Sequentity::each_overlapping(const Track& track, OverlappingCallback func) 
         for (auto& event : channel.events) {
             if (event.removed) continue;
             if (!event.enabled) continue;
-            if (contains(event, _registry.ctx_or_set<State>().current_time)) func(event);
+            if (_contains(event, time)) func(event);
         }
     }
 }
 
 
-void Sequentity::draw_theme_editor(bool* p_open) {
+void ThemeEditor(bool* p_open = nullptr) {
     ImGui::Begin("Theme", p_open);
     {
         if (ImGui::CollapsingHeader("Global")) {
@@ -1017,7 +1026,7 @@ void Sequentity::draw(bool* p_open) {
                 ImGui::SameLine();
 
                 if (Button("s", track.solo, { GlobalTheme.track_height, GlobalTheme.track_height })) {
-                    _solo(track);
+                    _solo(_registry, track);
                 }
 
                 ImGui::PopID();

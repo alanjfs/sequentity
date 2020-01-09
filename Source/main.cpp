@@ -282,7 +282,7 @@ void Application::onTimeChanged() {
 
     else {
         Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
-            _sequentity.each_overlapping(track, [&](auto& event) {
+            Sequentity::Intersect(track, current_time, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
@@ -538,7 +538,7 @@ void Application::drawScene() {
         Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
                                                                      const auto& track,
                                                                      const auto& color) {
-            _sequentity.each_overlapping(track, [&](auto& event) {
+            Sequentity::Intersect(track, state.current_time, [&](auto& event) {
                 if (event.type == TranslateEvent) {
                     auto& data = *static_cast<TranslateEventData*>(event.data);
                     auto pos = position + data.offset;
@@ -597,7 +597,7 @@ void Application::drawEvent() {
     }
 
     if (_showStyleEditor) {
-        _sequentity.draw_theme_editor();
+        Sequentity::ThemeEditor(&_showStyleEditor);
         ImGui::ShowStyleEditor();
     }
 

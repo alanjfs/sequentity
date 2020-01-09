@@ -5,7 +5,23 @@ Just started working on this, come back another time for images, docs and other 
 <br>
 <br>
 
-### Sequentity - A sequencer widget for ImGui
+<img width=500 src=https://user-images.githubusercontent.com/47274066/72092588-8d356e00-330a-11ea-8e83-007bb59aaf45.png>
+
+### Sequentity - An immediate-mode sequencer widget for Dear ImGui
+
+It's a sequence editor, in the spirit of MIDI authoring software like Ableton Live, Bitwig and FL Studio, where events carry a start time, a duration and handle to your custom application data.
+
+**Features**
+
+
+- **Performance** Is performance a feature? Yes, yes it is.
+- 
+
+```cpp
+while (true) {
+    Sequentity::Sequentity(registry);
+}
+```
 
 **Similar Projects**
 
@@ -47,11 +63,9 @@ Just started working on this, come back another time for images, docs and other 
 
 **Open Questions**
 
-- Data for Sequentity is created by the application, and it's rather easy to mess it up. E.g. forget to assign a label or color to a given channel. Or assign two overlapping events. This could be abstracted into e.g. `Sequentity::Interface::create_event()` but it would mean either (1) making a component out of it such that we can read it from the application, or pass around an instance of Sequentity itself. Maybe Sequentity could be listening for a `CreateEvent` component with relevant data to create an event itself, and do any additional initialisation from there?
-- Application data is associated with an event via a `void*`; it complicates memory management, as it involves a `new` and `delete` which is currently explicitly defined in the application. Error prone.
-- `Event` components are completely standalone and carry all relevant data with it, but reside in a `Track` component for the sole purpose of identifying unique event types, for horizontal sorting during render. An alterantive is to compute uniqueness either dynamically during draw, or whenever a new event is added to a channel. Track makes typing easier and conceptualising types of events in your head, but does it come at a performance penalty?
-- Interactions with Sequentity is done through methods on a class. These could instead be provided as components that are cleared up and reset per iteration; to make it more "ECS".
-- **Selection** Sequentity manages the currently selected event using a raw pointer in its own `State` component, is there a better way? We couldn't store selection state in an event itself, as they aren't the ones aware of whether their owner has got them selected or not. It's outside of their responsibility. And besides, it would mean we would need to iterate over all events to deselect before selecting another one, what a waste.
+- **How should data be created?** Data for Sequentity is created by the application, and it's rather easy to mess it up. E.g. forget to assign a label or color to a given channel. Or assign two overlapping events. This could be abstracted into e.g. `Sequentity::Interface::create_event()` but it would mean either (1) making a component out of it such that we can read it from the application, or pass around an instance of Sequentity itself. Maybe Sequentity could be listening for a `CreateEvent` component with relevant data to create an event itself, and do any additional initialisation from there?
+- **Who's responsible for managing memory?** Application data is associated with an event via a `void*`; it complicates memory management, as it involves a `new` and `delete` which is currently explicitly defined in the application. Error prone.
+- **How do we manage selection?** Sequentity manages the currently selected event using a raw pointer in its own `State` component, is there a better way? We couldn't store selection state in an event itself, as they aren't the ones aware of whether their owner has got them selected or not. It's outside of their responsibility. And besides, it would mean we would need to iterate over all events to deselect before selecting another one, what a waste.
 
 **Application Questions**
 
