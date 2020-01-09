@@ -67,7 +67,6 @@ public:
 
 private:
     ImGuiIntegration::Context _imgui{ NoCreate };
-    Sequentity::Sequentity _sequentity { Registry };
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
@@ -579,7 +578,7 @@ void Application::drawEvent() {
         _previous_time = state.current_time;
     }
 
-    _sequentity.draw(&_showSequencer);
+    Sequentity::Sequentity(Registry, &_showSequencer);
 
     // Erase all current inputs
     if (!Registry.empty<Deactivated>()) {

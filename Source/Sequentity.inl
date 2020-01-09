@@ -212,27 +212,9 @@ inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
 
 
 /**
- * @brief Stateless class
- *
- */
-struct Sequentity {
-
-    // Sequentity reads Event and Channel components from your EnTT registry
-    // but the involvement of EnTT is minimal and easily replaced by your own
-    // implementation. See any reference to _registry below.
-    Sequentity(entt::registry& registry) : _registry(registry) {}
-
-    void draw(bool* p_open = nullptr);
-
-private:
-    entt::registry& _registry;
-};
-
-
-/**
  * @brief A summary of all colours available to Sequentity
  *
- * Hint: These can be edited interactively via the `draw_theme_editor()` window
+ * Hint: These can be edited interactively via the `ThemeEditor()` window
  *
  */
 
@@ -400,7 +382,7 @@ void ThemeEditor(bool* p_open = nullptr) {
 }
 
 
-void Sequentity::draw(bool* p_open) {
+void Sequentity(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -415,7 +397,7 @@ void Sequentity::draw(bool* p_open) {
         current += delta * velocity;
     };
 
-    auto& state = _registry.ctx_or_set<State>();
+    auto& state = registry.ctx_or_set<State>();
     transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
     transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
     transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
@@ -787,7 +769,7 @@ void Sequentity::draw(bool* p_open) {
         auto Events = [&]() {
             ImVec2 cursor { C.x + state.pan[0], C.y + state.pan[1] };
 
-            _registry.view<Track>().each([&](auto& track) {
+            registry.view<Track>().each([&](auto& track) {
                 Header(track, cursor);
 
                 // Give each event a unique ImGui ID
@@ -995,7 +977,7 @@ void Sequentity::draw(bool* p_open) {
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
 
-            _registry.view<Track>().each([&](auto& track) {
+            registry.view<Track>().each([&](auto& track) {
 
                 // Draw track header
                 //  __________________________________________
@@ -1026,7 +1008,7 @@ void Sequentity::draw(bool* p_open) {
                 ImGui::SameLine();
 
                 if (Button("s", track.solo, { GlobalTheme.track_height, GlobalTheme.track_height })) {
-                    _solo(_registry, track);
+                    _solo(registry, track);
                 }
 
                 ImGui::PopID();
