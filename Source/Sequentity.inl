@@ -299,6 +299,10 @@ static void _solo(entt::registry& registry, Track& track) {
 }
 
 
+/**
+ * @brief Does the event intersect with this time?
+ *
+ */
 static bool _contains(const Event& event, int time) {
     return (
         event.time <= time &&
@@ -306,8 +310,28 @@ static bool _contains(const Event& event, int time) {
     );
 }
 
+/**
+ * @brief Interpolate between current and target values
+ *
+ * ..at a given velocity (ignoring deltas smaller than epsilon)
+ *
+ */
+static void _transition(float& current, float target, float velocity, float epsilon = 0.1f) {
+    const float delta = target - current;
 
-/**  Find intersecting events in track @ time
+    // Prevent transitions between too small values
+    // (Especially damaging to fonts)
+    if (abs(delta) < epsilon) current = target;
+
+    current += delta * velocity;
+};
+
+
+/**
+ * @brief Yield all events that intersect the given track at the given time
+ *
+ * Use this to iterate over relevant events,
+ * passing in a function to operate on the result.
  *
  *               time
  *                 |
@@ -335,73 +359,15 @@ void Intersect(const Track& track, int time, IntersectFunc func) {
 }
 
 
-void ThemeEditor(bool* p_open = nullptr) {
-    ImGui::Begin("Theme", p_open);
-    {
-        if (ImGui::CollapsingHeader("Global")) {
-            ImGui::ColorEdit4("dark##global", &GlobalTheme.dark.x);
-            ImGui::ColorEdit4("shadow##global", &GlobalTheme.shadow.x);
-            ImGui::DragFloat("transition_speed##global", &GlobalTheme.transition_speed);
-            ImGui::DragFloat("track_height##global", &GlobalTheme.track_height);
-            ImGui::DragFloat("border_width##global", &GlobalTheme.border_width);
-        }
-
-        if (ImGui::CollapsingHeader("Timeline")) {
-            ImGui::ColorEdit4("background", &TimelineTheme.background.x);
-            ImGui::ColorEdit4("text", &TimelineTheme.text.x);
-            ImGui::ColorEdit4("dark", &TimelineTheme.dark.x);
-            ImGui::ColorEdit4("mid", &TimelineTheme.mid.x);
-            ImGui::ColorEdit4("start_time", &TimelineTheme.start_time.x);
-            ImGui::ColorEdit4("current_time", &TimelineTheme.current_time.x);
-            ImGui::ColorEdit4("end_time", &TimelineTheme.end_time.x);
-            ImGui::DragFloat("height", &TimelineTheme.height);
-        }
-
-        if (ImGui::CollapsingHeader("Editor")) {
-            ImGui::ColorEdit4("background##editor", &EditorTheme.background.x);
-            ImGui::ColorEdit4("alternate##editor", &EditorTheme.alternate.x);
-            ImGui::ColorEdit4("text##editor", &EditorTheme.text.x);
-            ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.x);
-            ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.x);
-            ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.x);
-
-            ImGui::ColorEdit4("start_time##editor", &EditorTheme.start_time.x);
-            ImGui::ColorEdit4("current_time##editor", &EditorTheme.current_time.x);
-            ImGui::ColorEdit4("end_time##editor", &EditorTheme.end_time.x);
-        }
-
-        if (ImGui::CollapsingHeader("Lister")) {
-            ImGui::ColorEdit4("background##lister", &ListerTheme.background.x);
-            ImGui::ColorEdit4("text##lister", &ListerTheme.text.x);
-            ImGui::ColorEdit4("dark##lister", &ListerTheme.dark.x);
-            ImGui::ColorEdit4("mid##lister", &ListerTheme.mid.x);
-            ImGui::DragFloat("width##lister", &ListerTheme.width);
-        }
-    }
-    ImGui::End();
-}
-
-
 void Sequentity(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
-    // Animate between current and target value, at a given velocity (ignoring deltas smaller than epsilon)
-    auto transition = [](float& current, float target, float velocity, float epsilon = 0.1f) {
-        const float delta = target - current;
-
-        // Prevent transitions between too small values
-        // (Especially damaging to fonts)
-        if (abs(delta) < epsilon) current = target;
-
-        current += delta * velocity;
-    };
-
     auto& state = registry.ctx_or_set<State>();
-    transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
-    transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
-    transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
-    transition(state.zoom[1], state.target_zoom[1], GlobalTheme.transition_speed);
+    _transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
+    _transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
+    _transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
+    _transition(state.zoom[1], state.target_zoom[1], GlobalTheme.transition_speed);
 
     ImGui::Begin("Editor", p_open, windowFlags);
     {
@@ -842,7 +808,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
                             target_height = 5.0f;
                         }
 
-                        transition(event.height, target_height, GlobalTheme.transition_speed);
+                        _transition(event.height, target_height, GlobalTheme.transition_speed);
                         pos -= event.height;
 
                         const int shadow = 2;
@@ -1163,4 +1129,50 @@ void Sequentity(entt::registry& registry, bool* p_open) {
     ImGui::End();
 }
 
+
+void ThemeEditor(bool* p_open = nullptr) {
+    ImGui::Begin("Theme", p_open);
+    {
+        if (ImGui::CollapsingHeader("Global")) {
+            ImGui::ColorEdit4("dark##global", &GlobalTheme.dark.x);
+            ImGui::ColorEdit4("shadow##global", &GlobalTheme.shadow.x);
+            ImGui::DragFloat("transition_speed##global", &GlobalTheme.transition_speed);
+            ImGui::DragFloat("track_height##global", &GlobalTheme.track_height);
+            ImGui::DragFloat("border_width##global", &GlobalTheme.border_width);
+        }
+
+        if (ImGui::CollapsingHeader("Timeline")) {
+            ImGui::ColorEdit4("background", &TimelineTheme.background.x);
+            ImGui::ColorEdit4("text", &TimelineTheme.text.x);
+            ImGui::ColorEdit4("dark", &TimelineTheme.dark.x);
+            ImGui::ColorEdit4("mid", &TimelineTheme.mid.x);
+            ImGui::ColorEdit4("start_time", &TimelineTheme.start_time.x);
+            ImGui::ColorEdit4("current_time", &TimelineTheme.current_time.x);
+            ImGui::ColorEdit4("end_time", &TimelineTheme.end_time.x);
+            ImGui::DragFloat("height", &TimelineTheme.height);
+        }
+
+        if (ImGui::CollapsingHeader("Editor")) {
+            ImGui::ColorEdit4("background##editor", &EditorTheme.background.x);
+            ImGui::ColorEdit4("alternate##editor", &EditorTheme.alternate.x);
+            ImGui::ColorEdit4("text##editor", &EditorTheme.text.x);
+            ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.x);
+            ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.x);
+            ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.x);
+
+            ImGui::ColorEdit4("start_time##editor", &EditorTheme.start_time.x);
+            ImGui::ColorEdit4("current_time##editor", &EditorTheme.current_time.x);
+            ImGui::ColorEdit4("end_time##editor", &EditorTheme.end_time.x);
+        }
+
+        if (ImGui::CollapsingHeader("Lister")) {
+            ImGui::ColorEdit4("background##lister", &ListerTheme.background.x);
+            ImGui::ColorEdit4("text##lister", &ListerTheme.text.x);
+            ImGui::ColorEdit4("dark##lister", &ListerTheme.dark.x);
+            ImGui::ColorEdit4("mid##lister", &ListerTheme.mid.x);
+            ImGui::DragFloat("width##lister", &ListerTheme.width);
+        }
+    }
+    ImGui::End();
+}
 }
