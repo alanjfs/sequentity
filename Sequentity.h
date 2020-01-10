@@ -13,8 +13,15 @@ before you include this file in *one* C++ (17 and above) file to create the impl
 #ifndef SEQUENTITY_H
 #define SEQUENTITY_H
 
-#include <functional>
-#include <vector>
+#include <functional> // std::function
+#include <vector>     // std::vector
+#include <string>     // std::to_string
+
+// Made with ImGui-1.74 (docking)
+#include <imgui.h>
+
+// External dependency
+#include <entt/entity/registry.hpp>
 
 namespace Sequentity {
 
@@ -227,6 +234,8 @@ Documentation
 #ifdef SEQUENTITY_IMPLEMENTATION
 #undef SEQUENTITY_IMPLEMENTATION
 
+namespace Sequentity {
+
 /**
  * @brief Handy math overloads, for readability
  *
@@ -342,14 +351,14 @@ static struct EditorTheme_ {
  * @brief Internal helper functions
  *
  */
-inline void _solo(entt::registry& registry, Sequentity::Track& track) {
+inline void _solo(entt::registry& registry, Track& track) {
     bool any_solo { false };
-    registry.view<Sequentity::Track>().each([&any_solo](auto& track) {
+    registry.view<Track>().each([&any_solo](auto& track) {
         if (track.solo) any_solo = true;
         track._notsoloed = false;
     });
 
-    if (any_solo) registry.view<Sequentity::Track>().each([](auto& track) {
+    if (any_solo) registry.view<Track>().each([](auto& track) {
         track._notsoloed = !track.solo;
     });
 }
@@ -359,7 +368,7 @@ inline void _solo(entt::registry& registry, Sequentity::Track& track) {
  * @brief Does the event intersect with this time?
  *
  */
-inline bool _contains(const Sequentity::Event& event, int time) {
+inline bool _contains(const Event& event, int time) {
     return (
         event.time <= time &&
         event.time + event.length > time
@@ -383,7 +392,7 @@ static void _transition(float& current, float target, float velocity, float epsi
 };
 
 
-void Sequentity::Intersect(const Sequentity::Track& track, int time, IntersectFunc func) {
+void Intersect(const Track& track, int time, IntersectFunc func) {
     for (auto& [type, channel] : track.channels) {
         if (track.mute) continue;
         if (track._notsoloed) continue;
@@ -397,7 +406,7 @@ void Sequentity::Intersect(const Sequentity::Track& track, int time, IntersectFu
 }
 
 
-void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
+void Sequentity(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -733,7 +742,7 @@ void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
          *                         |_________________________|
          *
          */
-        auto Header = [&](const Sequentity::Track& track, ImVec2& cursor) {
+        auto Header = [&](const Track& track, ImVec2& cursor) {
             // Draw track header, a separator-like empty space
             // 
             // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
@@ -775,7 +784,7 @@ void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
         auto Events = [&]() {
             ImVec2 cursor { C.x + state.pan[0], C.y + state.pan[1] };
 
-            registry.view<Sequentity::Track>().each([&](auto& track) {
+            registry.view<Track>().each([&](auto& track) {
                 Header(track, cursor);
 
                 // Give each event a unique ImGui ID
@@ -983,12 +992,12 @@ void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
         auto Lister = [&]() {
             auto cursor = ImVec2{ A.x, A.y + state.pan[1] };
 
-            registry.view<Sequentity::Track>().each([&](auto& track) {
+            registry.view<Track>().each([&](auto& track) {
 
                 // Draw track header
                 //  __________________________________________
                 // |  ______ ______                         | |
-                // | | Mute | Solo |           Sequentity::Track        | |
+                // | | Mute | Solo |           Track        | |
                 // |________________________________________|_|
                 //
 
@@ -1170,7 +1179,7 @@ void Sequentity::Sequentity(entt::registry& registry, bool* p_open) {
 }
 
 
-void Sequentity::ThemeEditor(bool* p_open) {
+void ThemeEditor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
     {
         if (ImGui::CollapsingHeader("Global")) {
@@ -1215,5 +1224,7 @@ void Sequentity::ThemeEditor(bool* p_open) {
     }
     ImGui::End();
 }
+
+} // namespace Sequentity
 
 #endif /* SEQUENTITY_IMPLEMENTATION */

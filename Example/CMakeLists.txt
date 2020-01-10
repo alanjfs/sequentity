@@ -17,6 +17,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/External/magnum-singles
     ${CMAKE_SOURCE_DIR}/External/imgui/x64-windows/include
     ${CMAKE_SOURCE_DIR}/External/entt
+    ${CMAKE_SOURCE_DIR}/../
 )
 
 link_directories(
@@ -29,6 +30,7 @@ set(SRC_FILES
 )
 
 set(HEADERS_FILES
+    ../Sequentity.h
 )
 
 source_group("Sources" FILES ${SRC_FILES})

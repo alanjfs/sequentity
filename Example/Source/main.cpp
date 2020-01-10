@@ -4,6 +4,16 @@ Example usage of Sequentity.inl
 
 */
 
+// (Optional) Magnum prefers to have its imgui.h included first
+#include <Magnum/ImGuiIntegration/Context.hpp>
+
+// Sequentity is a single-file library, which means .h and .cpp files are combined
+// This define causes the .cpp portion of the library to be included and only needs
+// to exist (before the #include) in *one* of your translation units.
+#define SEQUENTITY_IMPLEMENTATION
+
+#include <Sequentity.h>
+
 #include <string>
 #include <iostream>
 #include <unordered_map>
@@ -14,7 +24,6 @@ Example usage of Sequentity.inl
 
 #include <Magnum/GL/DefaultFramebuffer.h>
 #include <Magnum/GL/Renderer.h>
-#include <Magnum/ImGuiIntegration/Context.hpp>
 #include <Magnum/Platform/GlfwApplication.h>
 
 #include <imgui_internal.h>
@@ -25,15 +34,11 @@ using namespace Math::Literals;
 
 static entt::registry Registry;
 
-#include "Utils.hpp"
+// For readability only; this really is just one big cpp file
+#include "Utils.inl"
 #include "Theme.inl"
 #include "Components.inl"
 #include "Widgets.inl"
-
-// Sequentity is a single-file library
-#define SEQUENTITY_IMPLEMENTATION
-#include "Sequentity.h"
-
 #include "Tools.inl"
 
 
