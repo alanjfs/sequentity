@@ -73,8 +73,6 @@ private:
     void onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time);
     void onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time);
 
-    void onTranslateEventRelative(entt::entity entity, const Sequentity::Event* previous, const Sequentity::Event& event, int time);
-
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
 
@@ -334,36 +332,6 @@ void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event&
 }
 
 
-// Apply events relative the previous event
-// TODO: This isn't working yet.
-void Application::onTranslateEventRelative(entt::entity entity,
-                                    const Sequentity::Event* previous,
-                                    const Sequentity::Event& current,
-                                    int time) {
-    assert(current.data != nullptr);
-    auto& position = Registry.get<Position>(entity);
-    auto data = static_cast<TranslateEventData*>(current.data);
-    const int index = time - current.time;
-    assert(data->positions.size() >= index);
-    auto value = data->positions[index];
-
-    // Offset from previous position
-    if (previous != nullptr) {
-        auto previousData = static_cast<TranslateEventData*>(previous->data);
-        auto previousPos = previousData->positions.back();
-
-        // Something's not right..
-        auto firstPos = data->positions.front();
-        auto relPos = value - firstPos;
-        position = previousPos + relPos;
-    }
-
-    else {
-        position = value;
-    }
-}
-
-
 void Application::onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
     assert(event.data != nullptr);
     auto& orientation = Registry.get<Orientation>(entity);
@@ -608,20 +576,10 @@ void Application::drawScene() {
             else if (ImGui::IsItemActive()) {
                 Registry.assign<Active>(entity);
                 Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
-
-                // Registry.view<ActiveTool>().each([&](auto entity, const auto&) {
-                //     Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
-                // });
             }
 
             else if (ImGui::IsItemDeactivated()) {
                 Registry.assign<Deactivated>(entity);
-
-                // TODO
-                // Registry.view<ActiveTool>().each([](auto entity, const auto&) {
-                //     Debug() << "Creating an active tool..";
-                //     Registry.destroy(entity);
-                // });
             }
         });
 

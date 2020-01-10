@@ -94,12 +94,6 @@ struct ScrubEventData {
 };
 
 
-// TODO
-// struct ActiveTool {
-//     Sequentity::Event* activeEvent;
-// };
-
-
 // Possible event types
 enum EventType : Sequentity::EventType {
     InvalidEvent = 0,  // Catch uninitialised types
@@ -146,13 +140,6 @@ static void SelectTool() {
 static void TranslateTool() {
     // Handle press input of type: 2D range, relative anything with a position
 
-    // Registry.view<InputPosition2D, ActiveTool>().each([](const auto&, const auto& input, const auto& state) {
-    //     Sequentity::Event& event = *state.activeEvent;
-    //     auto data = static_cast<TranslateEventData*>(event.data);
-    //     data->positions.emplace_back(input.absolute - data->offset);
-    //     event.length += 1;
-    // });
-
     Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([](
                                                                       auto entity,
                                                                       const auto& name,
@@ -192,9 +179,6 @@ static void TranslateTool() {
 
         Registry.reset<Selected>();
         Registry.assign<Selected>(entity);
-
-        // auto tool = Registry.create();
-        // Registry.assign<ActiveTool>(tool, &event);
     });
 
     Registry.view<Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](
