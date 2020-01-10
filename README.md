@@ -1,10 +1,6 @@
-
-<br>
-<br>
-
-
 <p align=center><img width=700 src=https://user-images.githubusercontent.com/2152766/72180447-1c13ba80-33df-11ea-99f0-1dc1dae2f60c.png></p>
 <p align=center>A single-file, immediate-mode sequencer widget for C++17, Dear ImGui and EnTT</p>
+<p align=center><img width=800 src=https://user-images.githubusercontent.com/47274066/72092588-8d356e00-330a-11ea-8e83-007bb59aaf45.png></p>
 
 <br>
 
