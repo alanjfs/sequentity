@@ -68,6 +68,11 @@ private:
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
 
+    // Sequentity event handlers
+    void onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time);
+    void onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time);
+    void onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time);
+
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
 
@@ -87,8 +92,6 @@ private:
 
     Tool _activeTool { ToolType::Translate, TranslateTool };
     Tool _previousTool { ToolType::Translate, TranslateTool };
-
-    std::unordered_map<ToolType, Tool> _tools;
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -114,7 +117,7 @@ static void on_size_constructed(entt::entity entity, entt::registry& registry, c
 
 
 Application::Application(const Arguments& arguments): Platform::Application{arguments,
-    Configuration{}.setTitle("Application")
+    Configuration{}.setTitle("Sequentity Example Application")
                    .setSize({1600, 900})
                    .setWindowFlags(Configuration::WindowFlag::Resizable)}
 {
@@ -176,13 +179,6 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     // Initialise internal sqty
     Registry.set<Sequentity::State>();
-
-    // Register tools
-    _tools[ToolType::Select] = Tool{ ToolType::Select, SelectTool };
-    _tools[ToolType::Translate] = TranslateTool2();
-    _tools[ToolType::Rotate] = RotateTool2();
-    _tools[ToolType::Scale] = ScaleTool2();
-    _tools[ToolType::Scrub] = Tool{ ToolType::Scrub, ScrubTool };
 
     setup();
     play();
@@ -304,17 +300,9 @@ void Application::onTimeChanged() {
             Sequentity::Intersect(track, current_time, [&](auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
-                if (event.type == TranslateEvent) {
-                    _tools[ToolType::Translate].read(entity, event, current_time);
-                }
-
-                else if (event.type == RotateEvent) {
-                    _tools[ToolType::Rotate].read(entity, event, current_time);
-                }
-
-                else if (event.type == ScaleEvent) {
-                    _tools[ToolType::Scale].read(entity, event, current_time);
-                }
+                if (event.type == TranslateEvent)   this->onTranslateEvent(entity, event, current_time);
+                else if (event.type == RotateEvent) this->onRotateEvent(entity, event, current_time);
+                else if (event.type == ScaleEvent)  this->onScaleEvent(entity, event, current_time);
 
                 else {
                     Warning() << "Unknown event type!" << event.type;
@@ -322,6 +310,42 @@ void Application::onTimeChanged() {
             });
         });
     }
+}
+
+
+/**
+ * @brief Sequentity event handlers
+ *
+ * Tools produce events that the application consumes relative the current time
+ * For each type of event, there is a different response, applicable to
+ * different data.
+ *
+ */
+void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    auto& position = Registry.get<Position>(entity);
+    auto data = static_cast<TranslateEventData*>(event.data);
+    const int index = time - event.time;
+    auto value = data->positions[index] - data->offset;
+    position = value;
+}
+
+
+void Application::onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    auto& orientation = Registry.get<Orientation>(entity);
+    auto data = static_cast<RotateEventData*>(event.data);
+    const int index = time - event.time;
+    const auto value = data->orientations[index];
+    orientation = value;
+}
+
+
+void Application::onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    auto& [initial, size] = Registry.get<InitialSize, Size>(entity);
+    auto data = static_cast<ScaleEventData*>(event.data);
+    const int index = time - event.time;
+    const auto value = data->scales[index];
+    size.x = static_cast<int>(initial.x * value);
+    size.y = static_cast<int>(initial.y * value);
 }
 
 
@@ -483,7 +507,7 @@ void Application::drawTransport() {
 void Application::setCurrentTool(ToolType type) {
     _previousTool = _activeTool;
     _activeTool = ToolType::Select    == type ? Tool{ ToolType::Select, SelectTool } :
-                  ToolType::Translate == type ? TranslateTool2() :
+                  ToolType::Translate == type ? Tool{ ToolType::Translate, TranslateTool }:
                   ToolType::Rotate    == type ? Tool{ ToolType::Rotate, RotateTool } :
                   ToolType::Scale     == type ? Tool{ ToolType::Scale, ScaleTool } :
                   ToolType::Scrub     == type ? Tool{ ToolType::Scrub, ScrubTool } :
