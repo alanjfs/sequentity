@@ -55,10 +55,13 @@ public:
     void step(int time);
     void stop();
 
+    void setCurrentTool(ToolType type);
+
     void setup();  // Populate registry with entities and components
     void reset();  // Reset all entities
     void clear();  // Clear all events
 
+private:
     void onTimeChanged(); // Apply active events from Sequentity
     void onNewTrack();
 
@@ -74,7 +77,6 @@ public:
     void mouseScrollEvent(MouseScrollEvent& event) override;
     void textInputEvent(TextInputEvent& event) override;
 
-private:
     ImGuiIntegration::Context _imgui{ NoCreate };
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
@@ -85,6 +87,8 @@ private:
 
     Tool _activeTool { ToolType::Translate, TranslateTool };
     Tool _previousTool { ToolType::Translate, TranslateTool };
+
+    std::unordered_map<ToolType, Tool> _tools;
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -170,8 +174,15 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     // E.g. in the order of your 3D character hierarchy
     Registry.on_construct<Sequentity::Track>().connect<&Application::onNewTrack>(*this);
 
-    // Initialise internal state
+    // Initialise internal sqty
     Registry.set<Sequentity::State>();
+
+    // Register tools
+    _tools[ToolType::Select] = Tool{ ToolType::Select, SelectTool };
+    _tools[ToolType::Translate] = TranslateTool2();
+    _tools[ToolType::Rotate] = RotateTool2();
+    _tools[ToolType::Scale] = ScaleTool2();
+    _tools[ToolType::Scrub] = Tool{ ToolType::Scrub, ScrubTool };
 
     setup();
     play();
@@ -203,35 +214,35 @@ void Application::setup() {
     auto purple = Registry.create();
     auto gray = Registry.create();
 
-    Registry.assign<Name>(red, "Red Rectangle");
+    Registry.assign<Name>(red, "hip");
     Registry.assign<Index>(red, 1);
     Registry.assign<Size>(red, 100, 100);
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f));
     Registry.assign<Orientation>(red, 0.0_degf);
     Registry.assign<Position>(red, 300, 50 + 50);
 
-    Registry.assign<Name>(green, "Green Rectangle");
+    Registry.assign<Name>(green, "leftLeg");
     Registry.assign<Index>(green, 2);
     Registry.assign<Size>(green, 100, 100);
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f));
     Registry.assign<Orientation>(green, 0.0_degf);
     Registry.assign<Position>(green, 500, 50 + 50);
 
-    Registry.assign<Name>(blue, "Blue Rectangle");
+    Registry.assign<Name>(blue, "foot");
     Registry.assign<Index>(blue, 3);
     Registry.assign<Size>(blue, 100, 100);
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f));
     Registry.assign<Orientation>(blue, 0.0_degf);
     Registry.assign<Position>(blue, 700, 50 + 50);
 
-    Registry.assign<Name>(purple, "Purple Rectangle");
+    Registry.assign<Name>(purple, "leftShoulder");
     Registry.assign<Index>(purple, 4);
     Registry.assign<Size>(purple, 80, 100);
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f));
     Registry.assign<Orientation>(purple, 0.0_degf);
     Registry.assign<Position>(purple, 350, 200 + 50);
 
-    Registry.assign<Name>(gray, "Gray Rectangle");
+    Registry.assign<Name>(gray, "head");
     Registry.assign<Index>(gray, 5);
     Registry.assign<Size>(gray, 80, 40);
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
@@ -246,39 +257,39 @@ void Application::play() {
 
 
 void Application::step(int delta) {
-    auto& state = Registry.ctx_or_set<Sequentity::State>();
-    auto time = state.current_time + delta;
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
+    auto time = sqty.current_time + delta;
 
-    if (time > state.range[1]) {
-        time = state.range[0];
+    if (time > sqty.range[1]) {
+        time = sqty.range[0];
     }
 
-    else if (time < state.range[0]) {
-        time = state.range[1];
+    else if (time < sqty.range[0]) {
+        time = sqty.range[1];
     }
 
-    state.current_time = time;
+    sqty.current_time = time;
 }
 
 
 void Application::stop() {
-    auto& state = Registry.ctx_or_set<Sequentity::State>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
-    state.current_time = state.range[0];
+    sqty.current_time = sqty.range[0];
     _playing = false;
 }
 
 
 void Application::onTimeChanged() {
-    auto& state = Registry.ctx<Sequentity::State>();
-    auto startTime = state.range[0];
-    auto current_time = state.current_time;
+    auto& sqty = Registry.ctx<Sequentity::State>();
+    auto startTime = sqty.range[0];
+    auto current_time = sqty.current_time;
 
     if (!Registry.empty<Deactivated>()) {
         Registry.reset<Abort>();
     }
 
-    if (current_time >= state.range[1]) {
+    if (current_time >= sqty.range[1]) {
         Registry.view<Active>().each([](auto entity, const auto) {
             Registry.assign_or_replace<Abort>(entity);
         });
@@ -294,30 +305,15 @@ void Application::onTimeChanged() {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent) {
-                    // Guaranteed to exist by the tool, operating solely on entities that carry it
-                    auto& position = Registry.get<Position>(entity);
-
-                    auto data = static_cast<TranslateEventData*>(event.data);
-                    const int index = current_time - event.time;
-                    auto value = data->positions[index] - data->offset;
-                    position = value;
+                    _tools[ToolType::Translate].read(entity, event, current_time);
                 }
 
                 else if (event.type == RotateEvent) {
-                    auto& orientation = Registry.get<Orientation>(entity);
-                    auto data = static_cast<RotateEventData*>(event.data);
-                    const int index = current_time - event.time;
-                    const auto value = data->orientations[index];
-                    orientation = value;
+                    _tools[ToolType::Rotate].read(entity, event, current_time);
                 }
 
                 else if (event.type == ScaleEvent) {
-                    auto& [initial, size] = Registry.get<InitialSize, Size>(entity);
-                    auto data = static_cast<ScaleEventData*>(event.data);
-                    const int index = current_time - event.time;
-                    const auto value = data->scales[index];
-                    size.x = static_cast<int>(initial.x * value);
-                    size.y = static_cast<int>(initial.y * value);
+                    _tools[ToolType::Scale].read(entity, event, current_time);
                 }
 
                 else {
@@ -438,7 +434,7 @@ void Application::drawCentralWidget() {
 
 
 void Application::drawTransport() {
-    auto& state = Registry.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
 
     ImGui::Begin("Transport", nullptr);
     {
@@ -458,51 +454,65 @@ void Application::drawTransport() {
             clear();
         }
 
-        ImGui::DragInt("Time", &state.current_time, 1.0f, state.range[0], state.range[1]);
+        ImGui::DragInt("Time", &sqty.current_time, 1.0f, sqty.range[0], sqty.range[1]);
 
-        if (ImGui::DragInt2("Range", state.range)) {
-            if (state.range[0] < 0) state.range[0] = 0;
-            if (state.range[1] < 5) state.range[1] = 5;
+        if (ImGui::DragInt2("Range", sqty.range)) {
+            if (sqty.range[0] < 0) sqty.range[0] = 0;
+            if (sqty.range[1] < 5) sqty.range[1] = 5;
 
-            if (state.current_time < state.range[0]) {
-                state.current_time = state.range[0];
+            if (sqty.current_time < sqty.range[0]) {
+                sqty.current_time = sqty.range[0];
             }
 
-            if (state.current_time > state.range[1]) {
-                state.current_time = state.range[1];
+            if (sqty.current_time > sqty.range[1]) {
+                sqty.current_time = sqty.range[1];
             }
         }
 
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("##zoom", &state.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
+        ImGui::SliderFloat("##zoom", &sqty.target_zoom[0], 50.0f, 400.0f, "%.3f", 2.0f); ImGui::SameLine();
         ImGui::SetNextItemWidth(70.0f);
-        ImGui::SliderFloat("Zoom", &state.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
-        ImGui::DragFloat2("Pan", state.target_pan);
-        ImGui::SliderInt("Stride", &state.stride, 1, 5);
+        ImGui::SliderFloat("Zoom", &sqty.target_zoom[1], 20.0f, 400.0f, "%.3f", 3.0f);
+        ImGui::DragFloat2("Pan", sqty.target_pan);
+        ImGui::SliderInt("Stride", &sqty.stride, 1, 5);
     }
     ImGui::End();
 }
 
 
+void Application::setCurrentTool(ToolType type) {
+    _previousTool = _activeTool;
+    _activeTool = ToolType::Select    == type ? Tool{ ToolType::Select, SelectTool } :
+                  ToolType::Translate == type ? TranslateTool2() :
+                  ToolType::Rotate    == type ? Tool{ ToolType::Rotate, RotateTool } :
+                  ToolType::Scale     == type ? Tool{ ToolType::Scale, ScaleTool } :
+                  ToolType::Scrub     == type ? Tool{ ToolType::Scrub, ScrubTool } :
+
+                                                // Default
+                                                Tool{ ToolType::Select, SelectTool};
+
+}
+
+
 void Application::drawScene() {
-    auto& state = Registry.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
 
     ImGui::Begin("3D Viewport", nullptr);
     {
         if (Widgets::Button("Select (Q)", _activeTool.type == ToolType::Select)) {
-            _activeTool = Tool{ ToolType::Select, SelectTool };
+            setCurrentTool(ToolType::Select);
         }
 
         if (Widgets::Button("Translate (W)", _activeTool.type == ToolType::Translate)) {
-            _activeTool = Tool{ ToolType::Translate, TranslateTool };
+            setCurrentTool(ToolType::Translate);
         }
 
         if (Widgets::Button("Rotate (E)", _activeTool.type == ToolType::Rotate)) {
-            _activeTool = Tool{ ToolType::Rotate, RotateTool };
+            setCurrentTool(ToolType::Rotate);
         }
 
         if (Widgets::Button("Scale (R)", _activeTool.type == ToolType::Scale)) {
-            _activeTool = Tool{ ToolType::Scale, ScaleTool };
+            setCurrentTool(ToolType::Scale);
         }
 
         Widgets::Button("Scrub (K)", _activeTool.type == ToolType::Scrub);
@@ -524,12 +534,12 @@ void Application::drawScene() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = state.current_time + (_playing ? 1 : 0);
+            auto time = sqty.current_time + (_playing ? 1 : 0);
             bool selected = Registry.has<Selected>(entity);
             Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
             if (ImGui::IsItemActivated()) {
-                Registry.assign<Activated>(entity, state.current_time);
+                Registry.assign<Activated>(entity, sqty.current_time);
                 Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
             }
 
@@ -546,7 +556,7 @@ void Application::drawScene() {
         Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
                                                                      const auto& track,
                                                                      const auto& color) {
-            Sequentity::Intersect(track, state.current_time, [&](auto& event) {
+            Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
                 if (event.type == TranslateEvent) {
                     auto& data = *static_cast<TranslateEventData*>(event.data);
                     auto pos = position + data.offset;
@@ -573,18 +583,18 @@ void Application::drawEvent() {
     drawScene();
 
     // Handle any input coming from the above drawScene()
-    _activeTool.system();
+    _activeTool.write();
 
-    auto& state = Registry.ctx_or_set<Sequentity::State>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
     if (_playing) step(1);
 
     // current_time is *mutable* and can change from anywhere
     // Thus, we compare it against the previous time change to
     // determine whether or not it has changed.
-    if (state.current_time != _previous_time) {
+    if (sqty.current_time != _previous_time) {
         onTimeChanged();
-        _previous_time = state.current_time;
+        _previous_time = sqty.current_time;
     }
 
     Sequentity::Sequentity(Registry, &_showSequencer);
@@ -652,32 +662,27 @@ void Application::keyPressEvent(KeyEvent& event) {
 
     if (event.key() == KeyEvent::Key::K && !event.isRepeated()) {
         Debug() << "Scrub tool..";
-        _previousTool = _activeTool;
-        _activeTool = Tool{ ToolType::Scrub, ScrubTool };
+        setCurrentTool(ToolType::Scrub);
     }
 
     if (event.key() == KeyEvent::Key::Q) {
         Debug() << "Select tool..";
-        _previousTool = _activeTool;
-        _activeTool = Tool{ ToolType::Select, SelectTool };
+        setCurrentTool(ToolType::Select);
     }
 
     if (event.key() == KeyEvent::Key::W) {
         Debug() << "Translate tool..";
-        _previousTool = _activeTool;
-        _activeTool = Tool{ ToolType::Translate, TranslateTool };
+        setCurrentTool(ToolType::Translate);
     }
 
     if (event.key() == KeyEvent::Key::E) {
         Debug() << "Rotate tool..";
-        _previousTool = _activeTool;
-        _activeTool = Tool{ ToolType::Rotate, RotateTool };
+        setCurrentTool(ToolType::Rotate);
     }
 
     if (event.key() == KeyEvent::Key::R) {
         Debug() << "Scale tool..";
-        _previousTool = _activeTool;
-        _activeTool = Tool{ ToolType::Scale, ScaleTool };
+        setCurrentTool(ToolType::Scale);
     }
 
     if(_imgui.handleKeyPressEvent(event)) return;
