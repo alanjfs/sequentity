@@ -1,11 +1,12 @@
-<img width=800 src=https://user-images.githubusercontent.com/47274066/72092588-8d356e00-330a-11ea-8e83-007bb59aaf45.png>
 
 <br>
 <br>
 
-### Sequentity (currently in alpha)
 
-A single-file, immediate-mode sequencer widget for C++17, Dear ImGui and EnTT
+<p align=center><img width=700 src=https://user-images.githubusercontent.com/2152766/72180447-1c13ba80-33df-11ea-99f0-1dc1dae2f60c.png></p>
+<p align=center>A single-file, immediate-mode sequencer widget for C++17, Dear ImGui and EnTT</p>
+
+<br>
 
 **Table of Contents**
 
@@ -85,6 +86,7 @@ If you know any more, please let me know by filing an issue!
 - [ ] **Custom Event Tooltip** Add a reminder for yourself or others about what an event is all about
 - [ ] **Event Vertical Move** Implement moving of events between channels and tracks (i.e. vertically)
 - [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
+- [ ] **One-off events** Some things happen instantaneously
 
 ![sequentitydemo1](https://user-images.githubusercontent.com/47274066/72174000-a4d72a00-33d0-11ea-8f40-f60cb7b993b7.gif) ![sequentitydemo3](https://user-images.githubusercontent.com/47274066/72174039-b91b2700-33d0-11ea-88db-d50305e06671.gif) ![sequentitydemo2](https://user-images.githubusercontent.com/47274066/72174005-a86ab100-33d0-11ea-9a50-93ef786a06db.gif) ![sequentity_zooming](https://user-images.githubusercontent.com/47274066/72174265-347cd880-33d1-11ea-96ee-ddea31bfbcec.gif) ![sequentitydemo4](https://user-images.githubusercontent.com/47274066/72174071-cb956080-33d0-11ea-9cb4-24c3974c8ada.gif) ![sequentitydemo6](https://user-images.githubusercontent.com/47274066/72174081-cf28e780-33d0-11ea-9091-de3010d3f79f.gif)
 
@@ -375,3 +377,5 @@ TODO
 ### Roadmap
 
 See [Todo](#todo) for now.
+
+![image](https://user-images.githubusercontent.com/2152766/72179629-39e02000-33dd-11ea-929f-1196c2eed2f5.png)
