@@ -94,6 +94,12 @@ struct ScrubEventData {
 };
 
 
+// TODO
+// struct ActiveTool {
+//     Sequentity::Event* activeEvent;
+// };
+
+
 // Possible event types
 enum EventType : Sequentity::EventType {
     InvalidEvent = 0,  // Catch uninitialised types
@@ -139,6 +145,14 @@ static void SelectTool() {
  */
 static void TranslateTool() {
     // Handle press input of type: 2D range, relative anything with a position
+
+    // Registry.view<InputPosition2D, ActiveTool>().each([](const auto&, const auto& input, const auto& state) {
+    //     Sequentity::Event& event = *state.activeEvent;
+    //     auto data = static_cast<TranslateEventData*>(event.data);
+    //     data->positions.emplace_back(input.absolute - data->offset);
+    //     event.length += 1;
+    // });
+
     Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([](
                                                                       auto entity,
                                                                       const auto& name,
@@ -146,44 +160,47 @@ static void TranslateTool() {
                                                                       const auto& input,
                                                                       const auto& color,
                                                                       const auto& position) {
-        auto* data = new TranslateEventData{}; {
-            data->offset = input.absolute - position;
-            data->positions.emplace_back(input.absolute);
-        }
-
-        Sequentity::Event event; {
-            event.time = activated.time + 1;
-            event.length = 1;
-            event.color = color;
-
-            // Store reference to our data
-            event.type = TranslateEvent;
-            event.data = static_cast<void*>(data);
-        }
 
         // The default name for any new track is coming from the owning entity
         if (!Registry.has<Sequentity::Track>(entity)) {
             Registry.assign<Sequentity::Track>(entity, name.text, color);
         }
 
+        auto* data = new TranslateEventData{}; {
+            data->offset = input.absolute - position;
+            data->positions.emplace_back(input.absolute);
+        }
+
         auto& track = Registry.get<Sequentity::Track>(entity);
         bool has_channel = track.channels.count(TranslateEvent);
         auto& channel = track.channels[TranslateEvent];
-        channel.events.push_back(event);
 
         if (!has_channel) {
             channel.label = "Translate";
             channel.color = ImColor::HSV(0.0f, 0.75f, 0.75f);
         }
 
+        auto& event = Sequentity::PushEvent(channel, {
+            activated.time + 1,                 /* time= */
+            1,                                  /* length= */
+            color,                              /* color= */
+
+            // Store reference to our data
+            TranslateEvent,                     /* type= */
+            static_cast<void*>(data)            /* data= */
+        });
+
         Registry.reset<Selected>();
         Registry.assign<Selected>(entity);
+
+        // auto tool = Registry.create();
+        // Registry.assign<ActiveTool>(tool, &event);
     });
 
-    Registry.view<Name, Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](const auto& name,
-                                                                           const auto&,
-                                                                           const auto& input,
-                                                                           auto& track) {
+    Registry.view<Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](
+                                                                const auto&,
+                                                                const auto& input,
+                                                                auto& track) {
         if (!track.channels.count(TranslateEvent)) {
             Warning() << "TranslateTool on" << track.label << "didn't have a TranslateEvent";
             return;

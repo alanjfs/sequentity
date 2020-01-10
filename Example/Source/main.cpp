@@ -73,6 +73,8 @@ private:
     void onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time);
     void onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time);
 
+    void onTranslateEventRelative(entt::entity entity, const Sequentity::Event* previous, const Sequentity::Event& event, int time);
+
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
 
@@ -297,7 +299,7 @@ void Application::onTimeChanged() {
 
     else {
         Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
-            Sequentity::Intersect(track, current_time, [&](auto& event) {
+            Sequentity::Intersect(track, current_time, [&](auto* previous, auto& event) {
                 if (event.data == nullptr) { Warning() << "This is a bug"; return; }
 
                 if (event.type == TranslateEvent)   this->onTranslateEvent(entity, event, current_time);
@@ -322,27 +324,63 @@ void Application::onTimeChanged() {
  *
  */
 void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    assert(event.data != nullptr);
     auto& position = Registry.get<Position>(entity);
     auto data = static_cast<TranslateEventData*>(event.data);
     const int index = time - event.time;
+    assert(data->positions.size() >= index);
     auto value = data->positions[index] - data->offset;
     position = value;
 }
 
 
+// Apply events relative the previous event
+// TODO: This isn't working yet.
+void Application::onTranslateEventRelative(entt::entity entity,
+                                    const Sequentity::Event* previous,
+                                    const Sequentity::Event& current,
+                                    int time) {
+    assert(current.data != nullptr);
+    auto& position = Registry.get<Position>(entity);
+    auto data = static_cast<TranslateEventData*>(current.data);
+    const int index = time - current.time;
+    assert(data->positions.size() >= index);
+    auto value = data->positions[index];
+
+    // Offset from previous position
+    if (previous != nullptr) {
+        auto previousData = static_cast<TranslateEventData*>(previous->data);
+        auto previousPos = previousData->positions.back();
+
+        // Something's not right..
+        auto firstPos = data->positions.front();
+        auto relPos = value - firstPos;
+        position = previousPos + relPos;
+    }
+
+    else {
+        position = value;
+    }
+}
+
+
 void Application::onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    assert(event.data != nullptr);
     auto& orientation = Registry.get<Orientation>(entity);
     auto data = static_cast<RotateEventData*>(event.data);
     const int index = time - event.time;
+    assert(data->orientations.size() >= index);
     const auto value = data->orientations[index];
     orientation = value;
 }
 
 
 void Application::onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    assert(event.data != nullptr);
     auto& [initial, size] = Registry.get<InitialSize, Size>(entity);
     auto data = static_cast<ScaleEventData*>(event.data);
     const int index = time - event.time;
+    assert(data->scales.size() >= index);
     const auto value = data->scales[index];
     size.x = static_cast<int>(initial.x * value);
     size.y = static_cast<int>(initial.y * value);
@@ -569,11 +607,21 @@ void Application::drawScene() {
 
             else if (ImGui::IsItemActive()) {
                 Registry.assign<Active>(entity);
-                Registry.replace<InputPosition2D>(entity, absolutePosition, relativePosition);
+                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
+
+                // Registry.view<ActiveTool>().each([&](auto entity, const auto&) {
+                //     Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
+                // });
             }
 
             else if (ImGui::IsItemDeactivated()) {
                 Registry.assign<Deactivated>(entity);
+
+                // TODO
+                // Registry.view<ActiveTool>().each([](auto entity, const auto&) {
+                //     Debug() << "Creating an active tool..";
+                //     Registry.destroy(entity);
+                // });
             }
         });
 
@@ -624,10 +672,8 @@ void Application::drawEvent() {
     Sequentity::Sequentity(Registry, &_showSequencer);
 
     // Erase all current inputs
-    if (!Registry.empty<Deactivated>()) {
-        Registry.reset<InputPosition2D>();
-        Registry.reset<InputPosition3D>();
-    }
+    Registry.reset<InputPosition2D>();
+    Registry.reset<InputPosition3D>();
 
     // Restore order to this world
     Registry.reset<Active>();
