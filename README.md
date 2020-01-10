@@ -374,4 +374,4 @@ TODO
 
 See [Todo](#todo) for now.
 
-![image](https://user-images.githubusercontent.com/2152766/72179629-39e02000-33dd-11ea-929f-1196c2eed2f5.png)
+<img width=600 src=https://user-images.githubusercontent.com/2152766/72179629-39e02000-33dd-11ea-929f-1196c2eed2f5.png>
