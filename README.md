@@ -72,8 +72,19 @@ If you know any more, please let me know by filing an issue!
 - [x] **Consolidated Events** Individual events with a start and length, as opposed separate events for start and end
 - [x] **Overlapping Events** Author events 
 - [x] **Single-file library** Distributed as [a single `.h`](https://github.com/alanjfs/sequentity/blob/master/Sequentity.h) file of `~1'000` lines for easy inclusion into your project
+- [ ] **Croping** Discard beginning and/or end of an event
+- [ ] **Scaling** Stretch an event to fit a different range
 - [ ] **Cross-fade** Overlap the end of one event with the start of another for a cross-blend, to do e.g. linear interpolation
 - [ ] **Event Priority** When events overlap, determine the order in which they are processed
+- [ ] **Group Events** For drawing and manipulating multiple groups of entities together
+- [ ] **Mini-map** Like the one in Sublime Text; for when you've got lots of events
+- [ ] **Event Scaling** Sometimes, the input is good, but could use some fine-tuning
+- [ ] **Event Cropping** Other times, part of the input isn't worth keeping
+- [ ] **Track Folding** For when you have way too much going on
+- [ ] **Track, Channel and Event Renaming** Get better organised
+- [ ] **Custom Event Tooltip** Add a reminder for yourself or others about what an event is all about
+- [ ] **Event Vertical Move** Implement moving of events between channels and tracks (i.e. vertically)
+- [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
 
 ![sequentitydemo1](https://user-images.githubusercontent.com/47274066/72174000-a4d72a00-33d0-11ea-8f40-f60cb7b993b7.gif) ![sequentitydemo3](https://user-images.githubusercontent.com/47274066/72174039-b91b2700-33d0-11ea-88db-d50305e06671.gif) ![sequentitydemo2](https://user-images.githubusercontent.com/47274066/72174005-a86ab100-33d0-11ea-9a50-93ef786a06db.gif) ![sequentity_zooming](https://user-images.githubusercontent.com/47274066/72174265-347cd880-33d1-11ea-96ee-ddea31bfbcec.gif) ![sequentitydemo4](https://user-images.githubusercontent.com/47274066/72174071-cb956080-33d0-11ea-9cb4-24c3974c8ada.gif) ![sequentitydemo6](https://user-images.githubusercontent.com/47274066/72174081-cf28e780-33d0-11ea-9091-de3010d3f79f.gif)
 
@@ -99,21 +110,10 @@ If you know any more, please let me know by filing an issue!
 
 These are going into GitHub issues shortly.
 
-- [ ] **Sequentity::CreateEvent()** See if you can move some of the repetitive and unsafe logic to the library
 - [ ] **Custom deleter for application data** See [suggestion here](https://github.com/alanjfs/sequentity/commit/96cff16e1520e7a73ff4a622b58d92d6083a8648#r36675122)
-- [ ] **Effects**
-- [ ] **Group Events** For drawing and manipulating multiple groups of entities together
 - [ ] **Sequentity::CurveEditor()** For visualising and manipulating user data, like position or rotation over time
 - [ ] **Sequentity::ClipEditor()** For storing and reusing events or groups, like in Ableton Live
 - [ ] **Sequentity::ArrangementEditor()** For arranging multiple clips along a global timeline
-- [ ] **Mini-map** Like the one in Sublime Text; for when you've got lots of events
-- [ ] **Event Scaling** Sometimes, the input is good, but could use some fine-tuning
-- [ ] **Event Cropping** Other times, part of the input isn't worth keeping
-- [ ] **Track Folding** For when you have way too much going on
-- [ ] **Track Rename** Get better organised
-- [ ] **Channel Rename**
-- [ ] **Event Vertical Move** Implement moving of events between channels and tracks (i.e. vertically)
-- [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
 - [ ] **Stride** There are a few values that work, but make no sense, like `stride`
 - [ ] **Bug, hot-swap tool** Translate something and switch tool without letting go
 - [ ] **Bug, event at end** Click to add an event on the end frame, and it'll create one erroneously
@@ -132,7 +132,7 @@ I made Sequentity for another (commercial) project, but made it open source in o
 Here are some of the things I'm actively looking for answers to and that you are welcome to strike up a dialog about in a new issue. (Thank you!)
 
 - **Who's responsible for managing memory?** Application data is associated with an event via a `void*`; it complicates memory management, as it involves a `new` and `delete` which is currently explicitly defined in the application. Error prone.
-- **How should events be authored?** Data for Sequentity is created by the application, and it's rather easy to mess it up. E.g. forget to assign a label or color to a given channel. Or assign two overlapping events. This could be abstracted into e.g. `Sequentity::Interface::create_event()` but it would mean either (1) making a component out of it such that we can read it from the application, or pass around an instance of Sequentity itself. Maybe Sequentity could be listening for a `CreateEvent` component with relevant data to create an event itself, and do any additional initialisation from there?
+- **Start, End and Beyond** Events are currently authored and stored in memory like they appear in the editor; but in your typical MIDI editor the original events don't look like this. Instead, events are standalone, immutable. An editor, like Cubase, then draws each consecutive start and end pair as a single bar for easy selection and edits. But do they store it in memory like this? I found it challenging to keep events coming in from the application together. For example, if I click and drag with the mouse, and then click with my Wacom tabled whilst still holding down the mouse, I would get a new click event in the midst of drag events, without any discernable way to distinguish the origin of each move event. MIDI doesn't have this problem, as an editor typically pre-selects from which device to expect input. But I would very much like to facilitate multiple mice, simultaneous Wacom tablets, eye trackers and anything capable of generating interesting events.
 - **How do we manage selection?** Sequentity manages the currently selected event using a raw pointer in its own `State` component, is there a better way? We couldn't store selection state in an event itself, as they aren't the ones aware of whether their owner has got them selected or not. It's outside of their responsibility. And besides, it would mean we would need to iterate over all events to deselect before selecting another one, what a waste.
 
 On top of these, there are some equivalent [Application Open Questions](https://github.com/alanjfs/sequentity/blob/master/Example/README.md#open-questions) for the Tools and Input handling which I would very much like your feedback on.
