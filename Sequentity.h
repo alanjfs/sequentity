@@ -25,7 +25,8 @@ before you include this file in *one* C++ (17 and above) file to create the impl
 
 namespace Sequentity {
 
-using EventType = int;
+using EventType = std::uint8_t;  // A maximum of 256 types seem reasonable
+using TimeType = int;            // This isn't really editable
 
 // Some example events
 enum EventType_ : std::uint8_t {
@@ -39,8 +40,14 @@ enum EventType_ : std::uint8_t {
  *
  */
 struct Event {
-    int time { 0 };
-    int length { 0 };
+    TimeType time { 0 };
+    TimeType length { 0 };
+
+    ImVec4 color { ImColor::HSV(0.0f, 0.0f, 1.0f) };
+
+    // Map your custom data here, along with an optional type
+    EventType type { EventType_Move };
+    void* data { nullptr };
 
     /**
      * @brief Ignore start and end of event
@@ -54,7 +61,7 @@ struct Event {
      *  2 cropped from start             4 cropped from end
      *
      */
-    int crop[2] { 0, 0 };
+    TimeType crop[2] { 0, 0 };
 
     /* Whether or not to consider this event */
     bool enabled { true };
@@ -65,15 +72,10 @@ struct Event {
     /* Extend or reduce the length of an event */
     float scale { 1.0f };
 
-    ImVec4 color { ImColor::HSV(0.0f, 0.0f, 1.0f) };
-
     // Visuals, animation
     float height { 0.0f };
     float thickness { 0.0f };
 
-    // Map your custom data here, along with an optional type
-    void* data { nullptr };
-    EventType type { EventType_Move };
 };
 
 
@@ -123,7 +125,7 @@ struct Selected {};
  *
  */
 using IntersectFunc = std::function<void(const Event&)>;
-using IntersectWithPreviousFunc = std::function<void(const Event&, const Event&)>;
+using IntersectWithPreviousFunc = std::function<void(const Event*, const Event&)>;
 using IntersectWithPreviousAndNextFunc = std::function<void(const Event&, const Event&, const Event&)>;
 
 
@@ -176,7 +178,8 @@ struct State {
  *
  *
  */
-void Intersect(const Track& track, int time, IntersectFunc func);
+void Intersect(const Track& track, TimeType time, IntersectFunc func);
+void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func);
 
 /**
  * @brief Main call
@@ -281,7 +284,7 @@ inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
  *
  */
 
-static struct GlobalTheme_ {
+static struct CommonTheme_ {
     ImVec4 dark         { ImColor::HSV(0.0f, 0.0f, 0.3f) };
     ImVec4 shadow       { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
 
@@ -292,7 +295,7 @@ static struct GlobalTheme_ {
     float track_height { 25.0f };
     float transition_speed { 0.2f };
 
-} GlobalTheme;
+} CommonTheme;
 
 
 static struct ListerTheme_ {
@@ -368,7 +371,7 @@ inline void _solo(entt::registry& registry, Track& track) {
  * @brief Does the event intersect with this time?
  *
  */
-inline bool _contains(const Event& event, int time) {
+inline bool _contains(const Event& event, TimeType time) {
     return (
         event.time <= time &&
         event.time + event.length > time
@@ -392,7 +395,14 @@ static void _transition(float& current, float target, float velocity, float epsi
 };
 
 
-void Intersect(const Track& track, int time, IntersectFunc func) {
+inline void _sort_channel(Channel& channel) {
+    std::sort(channel.events.begin(), channel.events.end(), [] (const Event& a, const Event& b) {
+        return a.time < b.time;
+    });
+}
+
+
+void Intersect(const Track& track, TimeType time, IntersectFunc func) {
     for (auto& [type, channel] : track.channels) {
         if (track.mute) continue;
         if (track._notsoloed) continue;
@@ -405,16 +415,52 @@ void Intersect(const Track& track, int time, IntersectFunc func) {
     }
 }
 
+void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func) {
+    for (auto& [type, channel] : track.channels) {
+        if (track.mute) continue;
+        if (track._notsoloed) continue;
+
+        for (const auto& event : channel.events) {
+            if (event.removed) continue;
+            if (!event.enabled) continue;
+            if (_contains(event, time)) {
+
+                // Find closest
+                // TODO: Find a better way to deal with this
+                const Event* closest { nullptr };
+                for (auto& other : channel.events) {
+                    if (other.time < event.time) {
+                        if (closest == nullptr) {
+                            closest = &other;
+
+                        } else if (closest->time < other.time) {
+                            closest = &other;
+                        }
+                    }
+                }
+
+                func(closest, event);
+            }
+        }
+    }
+}
+
+
+Event& PushEvent(Channel& channel, Event event) {
+    channel.events.emplace_back(event);
+    return channel.events.back();
+}
+
 
 void Sequentity(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
     auto& state = registry.ctx_or_set<State>();
-    _transition(state.pan[0], state.target_pan[0], GlobalTheme.transition_speed, 1.0f);
-    _transition(state.pan[1], state.target_pan[1], GlobalTheme.transition_speed, 1.0f);
-    _transition(state.zoom[0], state.target_zoom[0], GlobalTheme.transition_speed);
-    _transition(state.zoom[1], state.target_zoom[1], GlobalTheme.transition_speed);
+    _transition(state.pan[0], state.target_pan[0], CommonTheme.transition_speed, 1.0f);
+    _transition(state.pan[1], state.target_pan[1], CommonTheme.transition_speed, 1.0f);
+    _transition(state.zoom[0], state.target_zoom[0], CommonTheme.transition_speed);
+    _transition(state.zoom[1], state.target_zoom[1], CommonTheme.transition_speed);
 
     ImGui::Begin("Editor", p_open, windowFlags);
     {
@@ -454,7 +500,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
         // TODO: What is this value?
         auto multiplier = zoom_ / stride_;
 
-        auto time_to_px = [&multiplier](int time)  -> float { return time * multiplier; };
+        auto time_to_px = [&multiplier](TimeType time)  -> float { return time * multiplier; };
         auto px_to_time = [&multiplier](float px)  -> int   { return static_cast<int>(px / multiplier); };
 
         auto CrossBackground = [&]() {
@@ -467,17 +513,17 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             // Border
             painter->AddLine(X + ImVec2{ ListerTheme.width, 0.0f },
                              X + ImVec2{ ListerTheme.width, TimelineTheme.height },
-                             ImColor(GlobalTheme.dark),
-                             GlobalTheme.border_width);
+                             ImColor(CommonTheme.dark),
+                             CommonTheme.border_width);
 
             painter->AddLine(X + ImVec2{ 0.0f, TimelineTheme.height },
                              X + ImVec2{ ListerTheme.width + 1, TimelineTheme.height },
-                             ImColor(GlobalTheme.dark),
-                             GlobalTheme.border_width);
+                             ImColor(CommonTheme.dark),
+                             CommonTheme.border_width);
         };
 
         auto ListerBackground = [&]() {
-            if (GlobalTheme.bling) {
+            if (CommonTheme.bling) {
                 // Drop Shadow
                 painter->AddRectFilled(
                     A,
@@ -501,12 +547,12 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             // Border
             painter->AddLine(A + ImVec2{ ListerTheme.width, 0.0f },
                              A + ImVec2{ ListerTheme.width, windowSize.y },
-                             ImColor(GlobalTheme.dark),
-                             GlobalTheme.border_width);
+                             ImColor(CommonTheme.dark),
+                             CommonTheme.border_width);
         };
 
         auto TimelineBackground = [&]() {
-            if (GlobalTheme.bling) {
+            if (CommonTheme.bling) {
                 // Drop Shadow
                 painter->AddRectFilled(
                     B,
@@ -530,8 +576,8 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             // Border
             painter->AddLine(B + ImVec2{ 0.0f, TimelineTheme.height },
                              B + ImVec2{ windowSize.x, TimelineTheme.height },
-                             ImColor(GlobalTheme.dark),
-                             GlobalTheme.border_width);
+                             ImColor(CommonTheme.dark),
+                             CommonTheme.border_width);
         };
 
         auto EditorBackground = [&]() {
@@ -543,7 +589,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
         };
 
         auto Timeline = [&]() {
-            for (int time = minTime; time < maxTime + 1; time++) {
+            for (TimeType time = minTime; time < maxTime + 1; time++) {
                 float xMin = time * zoom_;
                 float xMax = 0.0f;
                 float yMin = 0.0f;
@@ -588,7 +634,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
          *
          */
         auto VerticalGrid = [&]() {
-            for (int time = minTime; time < maxTime + 1; time++) {
+            for (TimeType time = minTime; time < maxTime + 1; time++) {
                 float xMin = time * zoom_;
                 float xMax = 0.0f;
                 float yMin = 0.0f;
@@ -624,7 +670,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
          *
          */
         unsigned int indicator_count { 0 };
-        auto TimeIndicator = [&](int& time, ImVec4 cursor_color, ImVec4 line_color) {
+        auto TimeIndicator = [&](TimeType& time, ImVec4 cursor_color, ImVec4 line_color) {
             auto xMin = time * zoom_ / stride_;
             auto xMax = 0.0f;
             auto yMin = TimelineTheme.height;
@@ -653,7 +699,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             ImGui::InvisibleButton("##indicator", size * 2.0f);
             ImGui::PopID();
 
-            static unsigned int initial_time { 0 };
+            static TimeType initial_time { 0 };
             if (ImGui::IsItemActivated()) {
                 initial_time = time;
             }
@@ -681,8 +727,8 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             for (int i=0; i < 5; i++) { shadow1[i] = points[i] + ImVec2{ 1.0f, 1.0f }; }
             for (int i=0; i < 5; i++) { shadow2[i] = points[i] + ImVec2{ 3.0f, 3.0f }; }
 
-            painter->AddConvexPolyFilled(shadow1, 5, ImColor(GlobalTheme.shadow));
-            painter->AddConvexPolyFilled(shadow2, 5, ImColor(GlobalTheme.shadow));
+            painter->AddConvexPolyFilled(shadow1, 5, ImColor(CommonTheme.shadow));
+            painter->AddConvexPolyFilled(shadow2, 5, ImColor(CommonTheme.shadow));
             painter->AddConvexPolyFilled(points, 5, ImColor(color));
             painter->AddPolyline(points, 5, ImColor(color * 1.25f), true, 1.0f);
             painter->AddLine(topPos - ImVec2{  2.0f, size.y * 0.3f },
@@ -754,7 +800,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
             // |__|__|__|__|__|__|__|__|__|__|__|__|__|__|
             // |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
             //
-            const ImVec2 size { windowSize.x, GlobalTheme.track_height };
+            const ImVec2 size { windowSize.x, CommonTheme.track_height };
 
             // Hide underlying vertical lines
             painter->AddRectFilled(
@@ -763,7 +809,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
                 ImColor(EditorTheme.background)
             );
 
-            if (GlobalTheme.tint_track) {
+            if (CommonTheme.tint_track) {
                 // Tint empty area with the track color
                 painter->AddRectFilled(
                     ImVec2{ C.x, cursor.y },
@@ -857,7 +903,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
                             target_height = 5.0f;
                         }
 
-                        _transition(event.height, target_height, GlobalTheme.transition_speed);
+                        _transition(event.height, target_height, CommonTheme.transition_speed);
                         pos -= event.height;
 
                         const int shadow = 2;
@@ -1004,12 +1050,12 @@ void Sequentity(entt::registry& registry, bool* p_open) {
                 const auto textSize = ImGui::CalcTextSize(track.label);
                 const auto pos = ImVec2{
                     ListerTheme.width - textSize.x - padding.x - padding.x,
-                    GlobalTheme.track_height / 2.0f - textSize.y / 2.0f
+                    CommonTheme.track_height / 2.0f - textSize.y / 2.0f
                 };
 
                 painter->AddRectFilled(
                     cursor + ImVec2{ ListerTheme.width - 5.0f, 0.0f },
-                    cursor + ImVec2{ ListerTheme.width, GlobalTheme.track_height },
+                    cursor + ImVec2{ ListerTheme.width, CommonTheme.track_height },
                     ImColor(track.color)
                 );
 
@@ -1019,17 +1065,17 @@ void Sequentity(entt::registry& registry, bool* p_open) {
 
                 ImGui::SetCursorPos(cursor + ImVec2{ padding.x, 0.0f } - ImGui::GetWindowPos());
                 ImGui::PushID(track.label);
-                Button("m", track.mute, { GlobalTheme.track_height, GlobalTheme.track_height });
+                Button("m", track.mute, { CommonTheme.track_height, CommonTheme.track_height });
                 ImGui::SameLine();
 
-                if (Button("s", track.solo, { GlobalTheme.track_height, GlobalTheme.track_height })) {
+                if (Button("s", track.solo, { CommonTheme.track_height, CommonTheme.track_height })) {
                     _solo(registry, track);
                 }
 
                 ImGui::PopID();
 
                 const auto track_corner = cursor;
-                cursor.y += GlobalTheme.track_height;
+                cursor.y += CommonTheme.track_height;
 
                 // Draw channels
                 // |
@@ -1182,12 +1228,12 @@ void Sequentity(entt::registry& registry, bool* p_open) {
 void ThemeEditor(bool* p_open) {
     ImGui::Begin("Theme", p_open);
     {
-        if (ImGui::CollapsingHeader("Global")) {
-            ImGui::ColorEdit4("dark##global", &GlobalTheme.dark.x);
-            ImGui::ColorEdit4("shadow##global", &GlobalTheme.shadow.x);
-            ImGui::DragFloat("transition_speed##global", &GlobalTheme.transition_speed);
-            ImGui::DragFloat("track_height##global", &GlobalTheme.track_height);
-            ImGui::DragFloat("border_width##global", &GlobalTheme.border_width);
+        if (ImGui::CollapsingHeader("Common")) {
+            ImGui::ColorEdit4("dark##global", &CommonTheme.dark.x);
+            ImGui::ColorEdit4("shadow##global", &CommonTheme.shadow.x);
+            ImGui::DragFloat("transition_speed##global", &CommonTheme.transition_speed);
+            ImGui::DragFloat("track_height##global", &CommonTheme.track_height);
+            ImGui::DragFloat("border_width##global", &CommonTheme.border_width);
         }
 
         if (ImGui::CollapsingHeader("Timeline")) {
