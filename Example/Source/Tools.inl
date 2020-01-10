@@ -159,15 +159,15 @@ static void TranslateTool() {
         }
 
         auto& track = Registry.get<Sequentity::Track>(entity);
-        bool has_channel = track.channels.count(TranslateEvent);
-        auto& channel = track.channels[TranslateEvent];
+        bool has_channel = Sequentity::HasChannel(track, TranslateEvent);
+        auto& channel = Sequentity::PushChannel(track, TranslateEvent);
 
         if (!has_channel) {
             channel.label = "Translate";
             channel.color = ImColor::HSV(0.0f, 0.75f, 0.75f);
         }
 
-        auto& event = Sequentity::PushEvent(channel, {
+        Sequentity::PushEvent(channel, {
             activated.time + 1,                 /* time= */
             1,                                  /* length= */
             color,                              /* color= */
@@ -227,30 +227,27 @@ static void RotateTool() {
             data->orientations.push_back(orientation);
         }
 
-        Sequentity::Event event; {
-            event.time = activated.time + 1;
-            event.length = 1;
-            event.color = color;
-
-            // Store reference to our data
-            event.type = RotateEvent;
-            event.data = static_cast<void*>(data);
-        }
-
         if (!Registry.has<Sequentity::Track>(entity)) {
             Registry.assign<Sequentity::Track>(entity, name.text, color);
         }
 
         auto& track = Registry.get<Sequentity::Track>(entity);
         bool has_channel = track.channels.count(RotateEvent);
-
         auto& channel = track.channels[RotateEvent];
-        channel.events.push_back(event);
 
         if (!has_channel) {
             channel.label = "Rotate";
             channel.color = ImColor::HSV(0.33f, 0.75f, 0.75f);
         }
+
+        Sequentity::PushEvent(channel, {
+            activated.time + 1,
+            1,
+            color,
+
+            RotateEvent,
+            static_cast<void*>(data)
+        });
 
         Registry.reset<Selected>();
         Registry.assign<Selected>(entity);
@@ -315,14 +312,21 @@ static void ScaleTool() {
 
         auto& track = Registry.get<Sequentity::Track>(entity);
         bool has_channel = track.channels.count(ScaleEvent);
-
         auto& channel = track.channels[ScaleEvent];
-        channel.events.push_back(event);
 
         if (!has_channel) {
             channel.label = "Scale";
             channel.color = ImColor::HSV(0.52f, 0.75f, 0.50f);
         }
+
+        Sequentity::PushEvent(channel, {
+            activated.time + 1,
+            1,
+            color,
+
+            ScaleEvent,
+            static_cast<void*>(data)
+        });
 
         Registry.reset<Selected>();
         Registry.assign<Selected>(entity);

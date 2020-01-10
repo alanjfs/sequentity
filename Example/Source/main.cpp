@@ -620,14 +620,14 @@ void Application::drawEvent() {
     if (_playing) step(1);
 
     // current_time is *mutable* and can change from anywhere
-    // Thus, we compare it against the previous time change to
+    // Thus, we compare it against the previous time to
     // determine whether or not it has changed.
     if (sqty.current_time != _previous_time) {
         onTimeChanged();
         _previous_time = sqty.current_time;
     }
 
-    Sequentity::Sequentity(Registry, &_showSequencer);
+    Sequentity::EventEditor(Registry, &_showSequencer);
 
     // Erase all current inputs
     Registry.reset<InputPosition2D>();

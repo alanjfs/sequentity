@@ -13,14 +13,15 @@ before you include this file in *one* C++ (17 and above) file to create the impl
 #ifndef SEQUENTITY_H
 #define SEQUENTITY_H
 
+#include <vector>
+#include <unordered_map>
 #include <functional> // std::function
-#include <vector>     // std::vector
 #include <string>     // std::to_string
 
-// Made with ImGui-1.74 (docking)
+// Originally made with ImGui-1.74 (docking)
 #include <imgui.h>
 
-// External dependency
+// External required dependency
 #include <entt/entity/registry.hpp>
 
 namespace Sequentity {
@@ -29,7 +30,7 @@ using EventType = std::uint8_t;  // A maximum of 256 types seem reasonable
 using TimeType = int;            // This isn't really editable
 
 // Some example events
-enum EventType_ : std::uint8_t {
+enum EventType_ : EventType {
     EventType_Move = 0,
     EventType_Rotate,
     EventType_Scale
@@ -158,6 +159,26 @@ struct State {
 
 
 /**
+ * @brief Main call
+ *
+ */
+void EventEditor(entt::registry& registry, bool* p_open);
+
+
+/**
+ * @brief Optional theme editor
+ *
+ */
+void ThemeEditor(bool* p_open = nullptr);
+
+/* Todo */
+void ClipEditor(entt::registry& registry, bool* p_open = nullptr);
+void ArrangementEditor(entt::registry& registry, bool* p_open = nullptr);
+void CurveEditor(entt::registry& registry, bool* p_open = nullptr);
+void DataEditor(entt::registry& registry, bool* p_open = nullptr);
+
+
+/**
  * @brief Yield all events that intersect the given track at the given time
  *
  * Use this to iterate over relevant events,
@@ -181,20 +202,11 @@ struct State {
 void Intersect(const Track& track, TimeType time, IntersectFunc func);
 void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func);
 
-/**
- * @brief Main call
- *
- */
-void Sequentity(entt::registry& registry, bool* p_open);
+bool HasChannel(const Track& track, EventType type);
+Channel& PushChannel(Track& track, EventType type, Channel channel = {});
+Event&   PushEvent(Channel& channel, Event event = {});
 
-
-/**
- * @brief Optional theme editor
- *
- */
-void ThemeEditor(bool* p_open = nullptr);
-
-}
+} // namespace Sequentity
 
 #endif /* SEQUENTITY_H */
 
@@ -446,13 +458,26 @@ void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func
 }
 
 
+bool HasChannel(const Track& track, EventType type) {
+    return track.channels.count(type) != 0;
+}
+
+
+Channel& PushChannel(Track& track, EventType type, Channel channel) {
+    if (!track.channels.count(type)) {
+        track.channels[type] = channel;
+    }
+    return track.channels[type];
+}
+
+
 Event& PushEvent(Channel& channel, Event event) {
     channel.events.emplace_back(event);
     return channel.events.back();
 }
 
 
-void Sequentity(entt::registry& registry, bool* p_open) {
+void EventEditor(entt::registry& registry, bool* p_open) {
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoScrollbar
                                  | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -462,7 +487,7 @@ void Sequentity(entt::registry& registry, bool* p_open) {
     _transition(state.zoom[0], state.target_zoom[0], CommonTheme.transition_speed);
     _transition(state.zoom[1], state.target_zoom[1], CommonTheme.transition_speed);
 
-    ImGui::Begin("Editor", p_open, windowFlags);
+    ImGui::Begin("Event Editor", p_open, windowFlags);
     {
         auto* painter = ImGui::GetWindowDrawList();
         auto titlebarHeight = 24.0f; // TODO: Find an exact value for this
@@ -1223,6 +1248,13 @@ void Sequentity(entt::registry& registry, bool* p_open) {
     }
     ImGui::End();
 }
+
+
+// TODO
+void ClipEditor(entt::registry& registry, bool* p_open) {}
+void ArrangementEditor(entt::registry& registry, bool* p_open) {}
+void CurveEditor(entt::registry& registry, bool* p_open) {}
+void DataEditor(entt::registry& registry, bool* p_open) {}
 
 
 void ThemeEditor(bool* p_open) {
