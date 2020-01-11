@@ -574,12 +574,12 @@ void Application::drawScene() {
             }
 
             else if (ImGui::IsItemActive()) {
-                Registry.assign<Active>(entity);
+                Registry.assign<Active>(entity, sqty.current_time);
                 Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
             }
 
             else if (ImGui::IsItemDeactivated()) {
-                Registry.assign<Deactivated>(entity);
+                Registry.assign<Deactivated>(entity, sqty.current_time);
             }
         });
 

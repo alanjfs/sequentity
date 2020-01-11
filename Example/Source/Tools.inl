@@ -143,7 +143,7 @@ static void TranslateTool() {
     Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([](
                                                                       auto entity,
                                                                       const auto& name,
-                                                                      const auto& activated,
+                                                                      const auto& state,
                                                                       const auto& input,
                                                                       const auto& color,
                                                                       const auto& position) {
@@ -168,7 +168,7 @@ static void TranslateTool() {
         }
 
         Sequentity::PushEvent(channel, {
-            activated.time + 1,                 /* time= */
+            state.time + 1,                     /* time= */
             1,                                  /* length= */
             color,                              /* color= */
 
@@ -182,7 +182,7 @@ static void TranslateTool() {
     });
 
     Registry.view<Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](
-                                                                const auto&,
+                                                                const auto& state,
                                                                 const auto& input,
                                                                 auto& track) {
         if (!track.channels.count(TranslateEvent)) {
@@ -193,9 +193,20 @@ static void TranslateTool() {
         auto& channel = track.channels[TranslateEvent];
         auto& event = channel.events.back();
 
+        auto index = state.time - event.time + 1;
         auto data = static_cast<TranslateEventData*>(event.data);
-        data->positions.emplace_back(input.absolute);
-        event.length += 1;
+
+        // Update existing data
+        if (data->positions.size() > index) {
+            data->positions[index] = input.absolute;
+        }
+
+        // Append new data
+        else {
+            data->positions.emplace_back(input.absolute);
+        }
+
+        event.length = index + 1;
     });
 
     Registry.view<Deactivated>().each([](auto entity, const auto&) {});
@@ -218,7 +229,7 @@ static void RotateTool() {
     Registry.view<Name, Activated, InputPosition2D, Color, Orientation>().each([](
                                                                          auto entity,
                                                                          const auto& name,
-                                                                         const auto& activated,
+                                                                         const auto& state,
                                                                          const auto& input,
                                                                          const auto& color,
                                                                          const auto& orientation) {
@@ -241,7 +252,7 @@ static void RotateTool() {
         }
 
         Sequentity::PushEvent(channel, {
-            activated.time + 1,
+            state.time + 1,
             1,
             color,
 
@@ -254,7 +265,7 @@ static void RotateTool() {
     });
 
     Registry.view<Name, Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](const auto& name,
-                                                                           const auto&,
+                                                                           const auto& state,
                                                                            const auto& input,
                                                                            auto& track) {
         if (!track.channels.count(RotateEvent)) { Warning() << "RotateTool: This should never happen"; return; }
@@ -262,9 +273,21 @@ static void RotateTool() {
         auto& channel = track.channels[RotateEvent];
         auto& event = channel.events.back();
 
+        auto index = state.time - event.time + 1;
         auto data = static_cast<RotateEventData*>(event.data);
-        data->orientations.push_back(static_cast<float>(data->offset + input.relative.x));
-        event.length += 1;
+
+        // Update existing data
+        auto value = static_cast<float>(data->offset + input.relative.x);
+        if (data->orientations.size() > index) {
+            data->orientations[index] = value;
+        }
+
+        // Append new data
+        else {
+            data->orientations.emplace_back(value);
+        }
+
+        event.length = index + 1;
     });
 
     Registry.view<Deactivated>().each([](auto entity, const auto&) {});
@@ -288,22 +311,12 @@ static void ScaleTool() {
     Registry.view<Name, Activated, InputPosition2D, Color, Size>().each([](
                                                                          auto entity,
                                                                          const auto& name,
-                                                                         const auto& activated,
+                                                                         const auto& state,
                                                                          const auto& input,
                                                                          const auto& color,
                                                                          const auto& size) {
         auto* data = new ScaleEventData{}; {
             data->scales.push_back(1.0f);
-        }
-
-        Sequentity::Event event; {
-            event.time = activated.time + 1;
-            event.length = 1;
-            event.color = color;
-
-            // Store reference to our data
-            event.type = ScaleEvent;
-            event.data = static_cast<void*>(data);
         }
 
         if (!Registry.has<Sequentity::Track>(entity)) {
@@ -320,7 +333,7 @@ static void ScaleTool() {
         }
 
         Sequentity::PushEvent(channel, {
-            activated.time + 1,
+            state.time + 1,
             1,
             color,
 
@@ -333,7 +346,7 @@ static void ScaleTool() {
     });
 
     Registry.view<Name, Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](const auto& name,
-                                                                           const auto&,
+                                                                           const auto& state,
                                                                            const auto& input,
                                                                            auto& track) {
         if (!track.channels.count(ScaleEvent)) { Warning() << "ScaleTool: This should never happen"; return; }
@@ -341,9 +354,21 @@ static void ScaleTool() {
         auto& channel = track.channels[ScaleEvent];
         auto& event = channel.events.back();
 
+        auto index = state.time - event.time + 1;
         auto data = static_cast<ScaleEventData*>(event.data);
-        data->scales.push_back(1.0f + input.relative.x * 0.01f);
-        event.length += 1;
+
+        // Update existing data
+        auto value = 1.0f + input.relative.x * 0.01f;
+        if (data->scales.size() > index) {
+            data->scales[index] = value;
+        }
+
+        // Append new data
+        else {
+            data->scales.emplace_back(value);
+        }
+
+        event.length = index + 1;
     });
 
     Registry.view<Deactivated>().each([](auto entity, const auto&) {});
