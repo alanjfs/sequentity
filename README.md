@@ -157,8 +157,14 @@ On top of these, there are some equivalent [Application Open Questions](https://
 Sequentity is distributed as a single-file library, with the `.h` and `.cpp` files combined.
 
 1. Copy [`Sequentity.h`](https://raw.githubusercontent.com/alanjfs/sequentity/master/Sequentity.h) into your project
+2. `#define SEQUENTITY_IMPLEMENTATION` in *one* of your `.cpp` files
 2. `#include <Sequentity.h>`
 4. [See below](#usage)
+
+**Dependencies**
+
+- [ImGui](https://github.com/ocornut/imgui) Which is how drawing and user input is managed
+- [EnTT](https://github.com/skypjack/entt) An ECS framework, this is where and how data is stored.
 
 <br>
 <br>
@@ -166,6 +172,80 @@ Sequentity is distributed as a single-file library, with the `.h` and `.cpp` fil
 ### Usage
 
 Sequentity can draw events in time, and facilitate edits to be made to those events interactively by the user. It doesn't know nor care about playback, that part is up to you.
+
+<details><summary>New to <b><a href="https://github.com/skypjack/entt">EnTT</a></b>?</summary>
+
+### An EnTT Primer
+
+Here's what you need to know about [EnTT](https://github.com/skypjack/entt) in order to use Sequentity.
+
+1. EnTT (pronounced "entity") is an ECS framework
+2. ECS stands for Entity-Component-System
+3. `Entities` are identifiers for "things" in your application, like a character, a sound or UI element
+4. `Components` carry the data for those things, like the `Color`, `Position` or `Mesh`
+5. `Systems` operate on that data in some way, such as adding `+1` to `Position.x` each frame
+
+It works like this.
+
+```cpp
+// You create a "registry"
+auto registry = entt::registry;
+
+// Along with an entity
+auto entity = registry.create();
+
+// Add some data..
+struct Position {
+    float x { 0.0f };
+    float y { 0.0f };
+};
+registry.assign<Position>(entity, 5.0f, 1.0f);  // 2nd argument onwards passed to constructor
+
+// ..and then iterate over that data
+registry.view<Position>().each([](auto& position) {
+    position.x += 1.0f;
+});
+```
+
+A "registry" is what keeps track of what entities have which components assigned, and "systems" can be as simple as a free function. I like to think of each loop as its own system, like that one up there iterating over positions. Single reponsibility, and able to perform complex operations that involve multiple components.
+
+Speaking of which, here's how you combine components.
+
+```cpp
+registry.view<Position, Color>().each([](auto& position, const auto& color) {
+    position.x += color.r;
+});
+```
+
+This function is called on every entity with both a position and color, and combines the two.
+
+Sequentity then is just another component.
+
+```cpp
+registry.assign<Sequentity::Track>(entity);
+```
+
+This component then stores all of the events related to this entity. When the entity is deleted, the `Track` is deleted alongside it, taking all of the events of this entity with it.
+
+```cpp
+registry.destroy(entity);
+```
+
+You could also keep the entity, but erase the track.
+
+```cpp
+registry.remove<Sequentity::Track>(entity);
+```
+
+And when you're fed up with entities and want to go home, then just:
+
+```cpp
+registry.clear();
+```
+
+And that's about it as far as Sequentity goes, have a look at the [EnTT Wiki](https://github.com/skypjack/entt/wiki) for more about EnTT. Have fun!
+
+</details>
 
 Here's how you draw.
 
