@@ -28,6 +28,10 @@
 
 It's an sequence editor, in the spirit of MIDI authoring software like Ableton Live, Bitwig and FL Studio, where each event carry a start time, a duration and handle to your custom application data.
 
+> **Heads up!**
+>
+> This is a work in progress, alpha at best, and is going through changes (that you are welcome to participate in!)
+
 What makes Sequentity different, and inspired its name, is that it is built as an Entity-Component-System (ECS), and events are a combination of start time, length and custom application data; as opposed to individual events for start and end; suitable for e.g. (1) create a dynamic rigid body, (2) edit said body, whilst maintaining reference to what got created and (3) delete the body at the end of the event.
 
 ```cpp
@@ -49,15 +53,29 @@ If you need to record anything in your application, odds are you need to play so
 
 I made this for recording user input in order to recreate application state exactly such that I could record once more, on-top of the previous recording; much like how muscicians record over themselves with various instruments to produce a complete song. You could theoretically decouple the clock-time aspect and use this as playback mechanism for undo/redo, similar to what ZBrush does, and save that with your scene/file. Something I intend on experimenting with!
 
+**Goals**
+
+- Build upon the decades of UI/UX design found in DAWs like Ableton Live and Bitwig
+- Visualise 1-100'000 events simultaneosuly, with LOD if necessary
+- No more than 1 ms per call on an Intel-level GPU
+- Fine-grained edits to properties of individual events up close
+- Coarse-grained bulk-edits to thousands of events from afar
+
 **Is there anything similar?**
 
 I'm sure there are, however I was only able to find one standalone example, and only a few others embedded in open source applications.
 
 If you know any more, please let me know by filing an issue!
 
-- https://github.com/CedricGuillemet/ImGuizmo#imsequencer
-- https://github.com/ocornut/imgui/issues/772#issuecomment-238243554
-- https://github.com/ocornut/imgui/issues/539#issuecomment-195507384
+- [ImSequencer](https://github.com/CedricGuillemet/ImGuizmo#imsequencer)
+- [LumixEngine](https://github.com/ocornut/imgui/issues/772#issuecomment-238243554)
+- [@citruslee snippet](https://github.com/ocornut/imgui/issues/539#issuecomment-195507384)
+- Your suggestion here
+
+Finally, there are others with a similar interface but different implementation and goal.
+
+- [Helio Workstation](https://github.com/helio-fm/helio-workstation)
+- Your suggestion here
 
 <br>
 <br>
@@ -108,10 +126,6 @@ If you know any more, please let me know by filing an issue!
 
 These are going into GitHub issues shortly.
 
-- [ ] **Custom deleter for application data** See [suggestion here](https://github.com/alanjfs/sequentity/commit/96cff16e1520e7a73ff4a622b58d92d6083a8648#r36675122)
-- [ ] **Sequentity::CurveEditor()** For visualising and manipulating user data, like position or rotation over time
-- [ ] **Sequentity::ClipEditor()** For storing and reusing events or groups, like in Ableton Live
-- [ ] **Sequentity::ArrangementEditor()** For arranging multiple clips along a global timeline
 - [ ] **Stride** There are a few values that work, but make no sense, like `stride`
 - [ ] **Bug, hot-swap tool** Translate something and switch tool without letting go
 - [ ] **Bug, event at end** Click to add an event on the end frame, and it'll create one erroneously
