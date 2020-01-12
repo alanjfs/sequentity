@@ -24,6 +24,23 @@
 <br>
 <br>
 
+### Try it
+
+You could build it, or you can download a pre-built version and fool around.
+
+- [`sequentity-0.1-alpha-windows.zip` (1.0 mb)](https://github.com/alanjfs/sequentity/releases/download/0.1-alpha/sequentity-0.1-alpha-windows.zip)
+
+**Quickstart**
+
+- Use the `QWER`-keys to switch between tools
+- Click + drag to manipulate the coloured squares
+- Click + drag to move events around in time
+- Alt + drag to pan in the Event Editor
+- Use the `Delete` key to start fresh 
+
+<br>
+<br>
+
 ### Overview
 
 It's an sequence editor, in the spirit of MIDI authoring software like Ableton Live, Bitwig and FL Studio, where each event carry a start time, a duration and handle to your custom application data.
