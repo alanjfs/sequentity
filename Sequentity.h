@@ -320,6 +320,7 @@ static struct ListerTheme_ {
     ImVec4 outline     { ImColor::HSV(0.0f, 0.0f, 0.1f) };
 
     float width { 180.0f };
+    float buttons_width { 90.0f };
 
 } ListerTheme;
 
@@ -1066,11 +1067,14 @@ void EventEditor(entt::registry& registry, bool* p_open) {
             registry.view<Track>().each([&](auto& track) {
 
                 // Draw track header
-                //  __________________________________________
-                // |  ______ ______                         | |
-                // | | Mute | Solo |           Track        | |
-                // |________________________________________|_|
+                //  _________________________________________   _
+                // |  ______ ______  |                     | |   |
+                // | | Mute | Solo | |        Track        | |   | track_height
+                // |_________________|_____________________|_|  _|
                 //
+                // |_________________|
+                //
+                //    buttons_width
 
                 const auto textSize = ImGui::CalcTextSize(track.label);
                 const auto pos = ImVec2{
@@ -1153,7 +1157,7 @@ void EventEditor(entt::registry& registry, bool* p_open) {
                     faded.w = 0.8f;
 
                     painter->AddRectFilled(
-                        track_corner + ImVec2{ pos.x, 0.0f },
+                        track_corner + ImVec2{ ListerTheme.buttons_width, 0.0f },
                         track_corner + ImVec2{ ListerTheme.width, cursor.y },
                         ImColor(faded)
                     );
