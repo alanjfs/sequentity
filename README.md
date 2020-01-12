@@ -32,11 +32,18 @@ You could build it, or you can download a pre-built version and fool around.
 
 **Quickstart**
 
-- Use the `QWER`-keys to switch between tools
-- Click + drag to manipulate the coloured squares
-- Click + drag to move events around in time
-- Alt + drag to pan in the Event Editor
-- Use the `Delete` key to start fresh 
+| Key | Description
+|:----------|:---------
+| **QWER** | Switch between tools
+| **Click + Drag** | Manipulate the coloured squares
+| **Click + Drag** | Move events around in time
+| **Alt + Click + Drag** | Pan in the Event Editor
+| **Delete** | Delete all events
+| **Space** | Play and pause
+| **F1** | Toggle the ImGui performance window
+| **F2** | Toggle the Theme Editor
+| **Backspace** | (debug) Pause the rendering loop
+| **Enter** | (debug) Redraw one frame
 
 <br>
 <br>
