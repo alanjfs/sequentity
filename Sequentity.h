@@ -1074,8 +1074,9 @@ void EventEditor(entt::registry& registry, bool* p_open) {
                 // | | Mute | Solo | |        Track        | |   | track_height
                 // |_________________|_____________________|_|  _|
                 //
+                // |_________________________________________|
+                //                             width
                 // |_________________|
-                //
                 //    buttons_width
 
                 const auto textSize = ImGui::CalcTextSize(track.label);
