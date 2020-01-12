@@ -39,7 +39,7 @@ entt::registry& registry;
 
 auto entity = registry.create();
 auto& track = registry.assign<Sequentity::Track>(entity, "My first track");
-auto& channel = Sequentity::PushChannel(track, "My first channel");
+auto& channel = Sequentity::PushChannel(track, MyEventType, "My first channel");
 auto& event = Sequentity::PushEvent(channel, 10, 5); // time, length
 
 while (true) {
@@ -87,8 +87,6 @@ Finally, there are others with a similar interface but different implementation 
 - [x] **Consolidated Events** Individual events with a start and length, as opposed separate events for start and end
 - [x] **Overlapping Events** Author events 
 - [x] **Single-file library** Distributed as [a single `.h`](https://github.com/alanjfs/sequentity/blob/master/Sequentity.h) file of `~1'000` lines for easy inclusion into your project
-- [ ] **Croping** Discard beginning and/or end of an event
-- [ ] **Scaling** Stretch an event to fit a different range
 - [ ] **Cross-fade** Overlap the end of one event with the start of another for a cross-blend, to do e.g. linear interpolation
 - [ ] **Event Priority** When events overlap, determine the order in which they are processed
 - [ ] **Group Events** For drawing and manipulating multiple groups of entities together
@@ -98,7 +96,7 @@ Finally, there are others with a similar interface but different implementation 
 - [ ] **Track Folding** For when you have way too much going on
 - [ ] **Track, Channel and Event Renaming** Get better organised
 - [ ] **Custom Event Tooltip** Add a reminder for yourself or others about what an event is all about
-- [ ] **Event Vertical Move** Implement moving of events between channels and tracks (i.e. vertically)
+- [ ] **Event Vertical Move** Implement moving of events between tracks (i.e. vertically)
 - [ ] **Zoom** Panning works by holding ALT while click+dragging. Zooming needs something like that.
 - [ ] **One-off events** Some things happen instantaneously
 
