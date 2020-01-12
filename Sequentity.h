@@ -2,6 +2,8 @@
 
 Sequentity.h - v0.1 - A single-file, immediate-mode sequencer widget for C++17, Dear ImGui and EnTT
 
+See license at the bottom of this file.
+
 Do this:
 
     #define SEQUENTITY_IMPLEMENTATION
@@ -1310,3 +1312,42 @@ void ThemeEditor(bool* p_open) {
 } // namespace Sequentity
 
 #endif /* SEQUENTITY_IMPLEMENTATION */
+
+
+/*
+
+======================= Jefferson Licence ===========================
+
+In short, it's BSD 2-clause, except I get a copy of what you make.
+
+For example, if the source code is used in the development of the next
+Grand Theft Auto, send me a copy. Used in your next music application?
+Send me a copy. In a Hollywood blockbuster? Send me a copy. Seems fair? =)
+
+=====================================================================
+
+Copyright (c) 2020, Alan Jefferson
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Copyright holder is entitled to a free copy of anything produced using this
+   source code.
+2. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+3. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
