@@ -7,6 +7,10 @@ The is an example application to test out Sequentity. In it, there are a few are
 1. Input Handling
 1. Tools
 
+It should build out of the box but I haven't tested it elsewhere just yet. Till then, here's a distribution (Windows).
+
+- [Download for Windows (1 mb)](https://github.com/alanjfs/sequentity/releases/download/0.1-alpha/sequentity-0.1-alpha-windows.zip)
+
 <br>
 
 **Todo**
