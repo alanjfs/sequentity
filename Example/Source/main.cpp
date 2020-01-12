@@ -298,7 +298,10 @@ void Application::onTimeChanged() {
     else {
         Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
             Sequentity::Intersect(track, current_time, [&](auto* previous, auto& event) {
-                if (event.data == nullptr) { Warning() << "This is a bug"; return; }
+                if (event.data == nullptr) {
+                    // Some events don't carry data, and that's OK
+                    return;
+                }
 
                 if (event.type == TranslateEvent)   this->onTranslateEvent(entity, event, current_time);
                 else if (event.type == RotateEvent) this->onRotateEvent(entity, event, current_time);
@@ -396,6 +399,8 @@ void Application::clear() {
                     delete static_cast<ScaleEventData*>(event.data);
                     deletedCount++;
                 }
+
+                else if (type == EventType::MousePressEvent || type == EventType::MouseMoveEvent || type == EventType::MouseReleaseEvent) {}
 
                 else {
                     Warning() << "Unknown event type" << event.type << "memory has leaked!";
@@ -725,10 +730,58 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 }
 
 void Application::mousePressEvent(MouseEvent& event) {
+    if (0) {
+        auto global = Registry.ctx<entt::entity>();
+
+        if (!Registry.has<Sequentity::Track>(global)) {
+            Registry.assign<Sequentity::Track>(global, "Global", ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(global);
+        bool has_channel = Sequentity::HasChannel(track, EventType::MousePressEvent);
+        auto& channel = Sequentity::PushChannel(track, EventType::MousePressEvent);
+
+        if (!has_channel) {
+            channel.label = "Mouse Press";
+            channel.color = ImColor::HSV(0.9f, 0.75f, 0.75f);
+        }
+
+        Sequentity::PushEvent(channel, {
+            Registry.ctx<Sequentity::State>().current_time + 1,
+            1,
+            channel.color,
+            EventType::MousePressEvent,
+        });
+    }
+
     if (_imgui.handleMousePressEvent(event)) return;
 }
 
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
+    if (0) {
+        auto global = Registry.ctx<entt::entity>();
+
+        if (!Registry.has<Sequentity::Track>(global)) {
+            Registry.assign<Sequentity::Track>(global, "Global", ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(global);
+        bool has_channel = Sequentity::HasChannel(track, EventType::MouseMoveEvent);
+        auto& channel = Sequentity::PushChannel(track, EventType::MouseMoveEvent);
+
+        if (!has_channel) {
+            channel.label = "Mouse Move";
+            channel.color = ImColor::HSV(0.95f, 0.75f, 0.75f);
+        }
+
+        Sequentity::PushEvent(channel, {
+            Registry.ctx<Sequentity::State>().current_time + 1,
+            1,
+            channel.color,
+            EventType::MouseMoveEvent,
+        });
+    }
+
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 

@@ -107,6 +107,12 @@ enum EventType : Sequentity::EventType {
     ScaleEvent,
 
     ScrubEvent,
+
+    MousePressEvent,
+    MouseMoveEvent,
+    MouseReleaseEvent,
+    KeyPressEvent,
+    KeyReleaseEvent,
 };
 
 
