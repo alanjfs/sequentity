@@ -64,6 +64,7 @@ public:
 private:
     void onTimeChanged(); // Apply active events from Sequentity
     void onNewTrack();
+    void pollGamepad();
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
@@ -96,6 +97,8 @@ private:
     bool _showSequencer { true };
     bool _showMetrics { false };
     bool _showStyleEditor { false };
+
+    std::vector<entt::entity> _entities;
 };
 
 
@@ -244,6 +247,12 @@ void Application::setup() {
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
     Registry.assign<Position>(gray, 550, 200 + 50);
+
+    _entities.push_back(red);
+    _entities.push_back(green);
+    _entities.push_back(blue);
+    _entities.push_back(purple);
+    _entities.push_back(gray);
 }
 
 
@@ -605,6 +614,61 @@ void Application::drawScene() {
 }
 
 
+void Application::pollGamepad() {
+    const auto& sqty = Registry.ctx<Sequentity::State>();
+
+    // Work around the fact that we're working in absolute coords for position
+    static std::unordered_map<entt::entity, Position> start_pos;
+
+    // Derive activation from changes to button presses
+    static std::unordered_map<int, bool> is_down {
+        { GLFW_GAMEPAD_BUTTON_A, false },
+        { GLFW_GAMEPAD_BUTTON_B, false },
+        { GLFW_GAMEPAD_BUTTON_X, false },
+        { GLFW_GAMEPAD_BUTTON_Y, false }
+    };
+
+    GLFWgamepadstate gamepad;
+    auto poll_button = [&](int button, entt::entity entity) {
+        if (gamepad.buttons[button]) {
+            const float right_trigger = gamepad.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER];
+            const float left_x = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+            const float left_y = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
+
+            const Position pos {
+                static_cast<int>(left_x * 100.0f),
+                static_cast<int>(left_y * 100.0f),
+            };
+
+            if (!is_down[button]) {
+                start_pos[entity] = Registry.get<Position>(entity);
+                Registry.assign<Activated>(entity, sqty.current_time);
+                Registry.assign<InputPosition2D>(entity, start_pos[entity], pos);
+                is_down[button] = true;
+            }
+
+            else {
+                Registry.assign<Active>(entity, sqty.current_time);
+                Registry.assign<InputPosition2D>(entity, start_pos[entity] + pos, pos);
+            }
+        }
+
+        else if (is_down[button]) {
+            Registry.assign<Deactivated>(entity, sqty.current_time);
+            is_down[button] = false;
+        }
+    };
+
+    // Hardcode each button to one entity each
+    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepad)) {
+        poll_button(GLFW_GAMEPAD_BUTTON_A, _entities[0]);
+        poll_button(GLFW_GAMEPAD_BUTTON_B, _entities[1]);
+        poll_button(GLFW_GAMEPAD_BUTTON_X, _entities[2]);
+        poll_button(GLFW_GAMEPAD_BUTTON_Y, _entities[3]);
+    }
+}
+
+
 void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
@@ -616,6 +680,8 @@ void Application::drawEvent() {
     drawCentralWidget();
     drawTransport();
     drawScene();
+
+    pollGamepad();
 
     // Handle any input coming from the above drawScene()
     _activeTool.write();
@@ -693,30 +759,11 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;
 
-    if (event.key() == KeyEvent::Key::K && !event.isRepeated()) {
-        Debug() << "Scrub tool..";
-        setCurrentTool(ToolType::Scrub);
-    }
-
-    if (event.key() == KeyEvent::Key::Q) {
-        Debug() << "Select tool..";
-        setCurrentTool(ToolType::Select);
-    }
-
-    if (event.key() == KeyEvent::Key::W) {
-        Debug() << "Translate tool..";
-        setCurrentTool(ToolType::Translate);
-    }
-
-    if (event.key() == KeyEvent::Key::E) {
-        Debug() << "Rotate tool..";
-        setCurrentTool(ToolType::Rotate);
-    }
-
-    if (event.key() == KeyEvent::Key::R) {
-        Debug() << "Scale tool..";
-        setCurrentTool(ToolType::Scale);
-    }
+    if (event.key() == KeyEvent::Key::K && !event.isRepeated()) setCurrentTool(ToolType::Scrub);
+    if (event.key() == KeyEvent::Key::Q)                        setCurrentTool(ToolType::Select);
+    if (event.key() == KeyEvent::Key::W)                        setCurrentTool(ToolType::Translate);
+    if (event.key() == KeyEvent::Key::E)                        setCurrentTool(ToolType::Rotate);
+    if (event.key() == KeyEvent::Key::R)                        setCurrentTool(ToolType::Scale);
 
     if(_imgui.handleKeyPressEvent(event)) return;
 }
