@@ -75,7 +75,7 @@ while (true) {
 
 If you need to record anything in your application, odds are you need to play something back. If so, you may also need to edit what got recorded, in which case you can use something like Sequentity.
 
-I made this for recording user input in order to recreate application state exactly such that I could record once more, on-top of the previous recording; much like how muscicians record over themselves with various instruments to produce a complete song. You could theoretically decouple the clock-time aspect and use this as playback mechanism for undo/redo, similar to what ZBrush does, and save that with your scene/file. Something I intend on experimenting with!
+I made this for recording user input in order to recreate application state exactly such that I could record once more, on-top of the previous recording; much like how musicians record over themselves with various instruments to produce a complete song. You could theoretically decouple the clock-time aspect and use this as playback mechanism for undo/redo, similar to what ZBrush does, and save that with your scene/file. Something I intend on experimenting with!
 
 **Goals**
 
