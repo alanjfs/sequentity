@@ -256,6 +256,11 @@ void Application::setup() {
 
 
 void Application::play() {
+    if (!_playing) {
+        stop();
+        reset();
+    }
+
     _playing ^= true;
 }
 
@@ -339,31 +344,29 @@ void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event&
     assert(data->positions.size() >= index);
     auto value = data->positions[index];
 
-    auto& position = Registry.get<Position>(entity);
-    position = position + value;
+    Registry.assign_or_replace<MoveIntent>(entity, value.x, value.y);
 }
 
 
 void Application::onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
     assert(event.data != nullptr);
-    auto& orientation = Registry.get<Orientation>(entity);
     auto data = static_cast<RotateEventData*>(event.data);
     const int index = time - event.time;
     assert(data->orientations.size() >= index);
     const auto value = data->orientations[index];
-    orientation = value;
+
+    Registry.assign_or_replace<RotateIntent>(entity, value);
 }
 
 
 void Application::onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time) {
     assert(event.data != nullptr);
-    auto& [initial, size] = Registry.get<InitialSize, Size>(entity);
     auto data = static_cast<ScaleEventData*>(event.data);
     const int index = time - event.time;
     assert(data->scales.size() >= index);
-    const auto value = data->scales[index];
-    size.x = static_cast<int>(initial.x * value);
-    size.y = static_cast<int>(initial.y * value);
+    const int value = data->scales[index];
+
+    Registry.assign_or_replace<ScaleIntent>(entity, value);
 }
 
 
@@ -701,6 +704,8 @@ void Application::drawEvent() {
     }
 
     Sequentity::EventEditor(Registry, &_showSequencer);
+
+    IntentSystem();
 
     // Erase all current inputs
     Registry.reset<InputPosition2D>();

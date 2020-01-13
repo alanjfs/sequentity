@@ -82,12 +82,11 @@ struct TranslateEventData {
 };
 
 struct RotateEventData {
-    float offset;
-    std::vector<float> orientations;
+    std::vector<int> orientations;
 };
 
 struct ScaleEventData {
-    std::vector<float> scales;
+    std::vector<int> scales;
 };
 
 struct ScrubEventData {
@@ -203,6 +202,7 @@ static void TranslateTool() {
         auto data = static_cast<TranslateEventData*>(event.data);
 
         // Update existing data
+        auto value = input.delta;
         if (data->positions.size() > index) {
             data->positions[index] = input.delta;
         }
@@ -240,8 +240,7 @@ static void RotateTool() {
                                                                          const auto& color,
                                                                          const auto& orientation) {
         auto* data = new RotateEventData{}; {
-            data->offset = orientation;
-            data->orientations.push_back(orientation);
+            data->orientations.push_back(0);
         }
 
         if (!Registry.has<Sequentity::Track>(entity)) {
@@ -283,7 +282,7 @@ static void RotateTool() {
         auto data = static_cast<RotateEventData*>(event.data);
 
         // Update existing data
-        auto value = static_cast<float>(data->offset + input.relative.x);
+        int value = input.delta.x;
         if (data->orientations.size() > index) {
             data->orientations[index] = value;
         }
@@ -322,7 +321,7 @@ static void ScaleTool() {
                                                                          const auto& color,
                                                                          const auto& size) {
         auto* data = new ScaleEventData{}; {
-            data->scales.push_back(1.0f);
+            data->scales.push_back(0);
         }
 
         if (!Registry.has<Sequentity::Track>(entity)) {
@@ -364,7 +363,7 @@ static void ScaleTool() {
         auto data = static_cast<ScaleEventData*>(event.data);
 
         // Update existing data
-        auto value = 1.0f + input.relative.x * 0.01f;
+        auto value = input.delta.x;
         if (data->scales.size() > index) {
             data->scales[index] = value;
         }
