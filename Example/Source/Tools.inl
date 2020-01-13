@@ -56,6 +56,7 @@ struct InputYaw  { float angle; };
 struct InputPosition2D  {
     Position absolute { 0, 0 };
     Position relative { 0, 0 };
+    Position delta { 0, 0 };
 };
 
 struct InputPosition3D {
@@ -160,8 +161,7 @@ static void TranslateTool() {
         }
 
         auto* data = new TranslateEventData{}; {
-            data->offset = input.absolute - position;
-            data->positions.emplace_back(input.absolute);
+            data->positions.emplace_back(Position{});
         }
 
         auto& track = Registry.get<Sequentity::Track>(entity);
@@ -204,12 +204,12 @@ static void TranslateTool() {
 
         // Update existing data
         if (data->positions.size() > index) {
-            data->positions[index] = input.absolute;
+            data->positions[index] = input.delta;
         }
 
         // Append new data
         else {
-            data->positions.emplace_back(input.absolute);
+            data->positions.emplace_back(input.delta);
         }
 
         event.length = index + 1;

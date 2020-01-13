@@ -40,6 +40,7 @@ static entt::registry Registry;
 #include "Components.inl"
 #include "Widgets.inl"
 #include "Tools.inl"
+#include "IntentSystem.inl"
 
 
 class Application : public Platform::Application {
@@ -158,13 +159,11 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     Theme();
 
-    /* Set up proper blending to be used by ImGui. There's a great chance
-       you'll need this exact behavior for the rest of your scene. If not, set
-       this only for the drawFrame() call. */
+    /* Set up proper blending to be used by ImGui */
     GL::Renderer::setBlendEquation(GL::Renderer::BlendEquation::Add,
-        GL::Renderer::BlendEquation::Add);
+                                   GL::Renderer::BlendEquation::Add);
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
-        GL::Renderer::BlendFunction::OneMinusSourceAlpha);
+                                   GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
     this->setSwapInterval(1);  // VSync
 
@@ -335,12 +334,13 @@ void Application::onTimeChanged() {
  */
 void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
     assert(event.data != nullptr);
-    auto& position = Registry.get<Position>(entity);
     auto data = static_cast<TranslateEventData*>(event.data);
     const int index = time - event.time;
     assert(data->positions.size() >= index);
-    auto value = data->positions[index] - data->offset;
-    position = value;
+    auto value = data->positions[index];
+
+    auto& position = Registry.get<Position>(entity);
+    position = position + value;
 }
 
 
@@ -561,9 +561,11 @@ void Application::drawScene() {
 
         Widgets::Button("Scrub (K)", _activeTool.type == ToolType::Scrub);
 
+        auto dpos = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
         auto rpos = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
         auto apos = Vector2i(Vector2(ImGui::GetIO().MousePos.x - ImGui::GetWindowPos().x,
                                      ImGui::GetIO().MousePos.y - ImGui::GetWindowPos().y));
+        Position deltaPosition { dpos.x(), dpos.y() };
         Position relativePosition { rpos.x(), rpos.y() };
         Position absolutePosition { apos.x(), apos.y() };
 
@@ -584,12 +586,12 @@ void Application::drawScene() {
 
             if (ImGui::IsItemActivated()) {
                 Registry.assign<Activated>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
+                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition, deltaPosition);
             }
 
             else if (ImGui::IsItemActive()) {
                 Registry.assign<Active>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition);
+                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition, deltaPosition);
             }
 
             else if (ImGui::IsItemDeactivated()) {
