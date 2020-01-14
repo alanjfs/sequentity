@@ -101,11 +101,10 @@ struct ScrubEventData {
     std::vector<int> deltas;
 };
 
-// struct ToolEventData {
-//     Tool tool;
-//     std::function<void()> execute { []() {}; };
-//     std::vector<std::function<void()>> updates;
-// };
+struct ToolEventData {
+    ToolType type;
+    std::unordered_map<int, InputPosition2D> input;
+};
 
 
 // Possible event types
@@ -133,14 +132,23 @@ enum EventType : Sequentity::EventType {
 
 
 struct ToolContext {
+    virtual ToolType type() = 0;
+    virtual void setup() {}
     virtual void begin() {}
+    virtual void begin(entt::entity) {}
     virtual void update() {}
     virtual void update(InputPosition2D) {}
+    virtual void update(entt::entity, InputPosition2D) {}
+    virtual void preview() {}
+    virtual void record(int time) {}
     virtual void finish() {}
+    virtual void teardown() {}
 };
 
 
+
 struct SelectContext : public ToolContext {
+    inline ToolType type() { return ToolType::Select; }
     void begin() override {
         Debug() << "Selecting..";
     }
@@ -151,6 +159,7 @@ struct SelectContext : public ToolContext {
 
 
 struct ScrubContext : public ToolContext {
+    inline ToolType type() { return ToolType::Scrub; }
     void begin() override {
         Debug() << "Scrubbing..";
     }
@@ -161,23 +170,31 @@ struct ScrubContext : public ToolContext {
 
 
 struct TranslateContext : public ToolContext {
-    TranslateContext() {
+    inline ToolType type() { return ToolType::Translate; }
+    inline const char* name() { return "Translate"; }
+    inline ImVec4 color() { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+
+    void setup() {
         Debug() << "Setting Translate mouse cursor..";
         Debug() << "Setting Translate tool tips..";
     }
 
-    ~TranslateContext() {
+    void teardown() {
         // Handle case of user switching tool in the middle of updating
-        if (Registry.valid(_entity)) finish();
+        if (_state == _Active) finish();
     }
 
-    void begin() override {
-        Registry.view<Hovered>().each([&](auto entity, const auto) {
-            _entity = entity;
+    void begin(entt::entity entity) {
+        _entity = entity;
+        _state = _Activated;
 
-            Registry.reset<Selected>();
-            Registry.assign<Selected>(entity);
-        });
+        Registry.reset<Selected>();
+        Registry.assign<Selected>(entity);
+    }
+
+    void update(entt::entity entity, InputPosition2D input) {
+        begin(entity);
+        update(input);
     }
 
     void update(InputPosition2D input) {
@@ -192,6 +209,9 @@ struct TranslateContext : public ToolContext {
                 intent.x += input.delta.x;
                 intent.y += input.delta.y;
             }
+
+            _state = _Active;
+            _input = input;
         }
 
         else {
@@ -199,19 +219,97 @@ struct TranslateContext : public ToolContext {
             Registry.view<Hovered>().each([](auto entity, const auto) {
                 Registry.assign<Tooltip>(entity, "Drag to translate");
             });
+
+            _state = _None;
+        }
+    }
+
+    void record(int time) {
+        if (!_state) return;
+
+        if (_state == _Activated) {
+            _begin_time = time;
+
+            auto [name, color] = Registry.get<Name, Color>(_entity);
+
+            if (!Registry.has<Sequentity::Track>(_entity)) {
+                Registry.assign<Sequentity::Track>(_entity, name.text, color);
+            }
+
+            auto* data = new ToolEventData{}; {
+                data->type = ToolType::Translate;
+            }
+
+            auto& track = Registry.get<Sequentity::Track>(_entity);
+            bool new_channel = !Sequentity::HasChannel(track, TranslateEvent);
+            auto& channel = Sequentity::PushChannel(track, TranslateEvent);
+
+            if (new_channel) {
+                channel.label = this->name();
+                channel.color = this->color();
+            }
+
+            Sequentity::PushEvent(channel, {
+                time,                               /* time= */
+                1,                                  /* length= */
+                color,                              /* color= */
+
+                // Store reference to our data
+                TranslateEvent,                     /* type= */
+                static_cast<void*>(data)            /* data= */
+            });
+        }
+
+        if (_state == _Active) {
+            if (_begin_time > time) {
+                // Abort
+                _state = _None;
+                return;
+            }
+
+            auto& track = Registry.get<Sequentity::Track>(_entity);
+            
+            if (!track.channels.count(TranslateEvent)) {
+                Warning() << "TranslateTool on" << track.label << "didn't have a TranslateEvent";
+                return;
+            }
+
+            auto& channel = track.channels[TranslateEvent];
+            auto& event = channel.events.back();
+
+            auto data = static_cast<ToolEventData*>(event.data);
+
+            // Update existing data
+            data->input[time] = _input;
+            event.length = time - event.time + 1;
+        }
+
+        if (_state == _Deactivated) {
+            Debug() << "End";
         }
     }
 
     void finish() override {
         _entity = entt::null;
+        _state = _Deactivated;
     }
 
 private:
     entt::entity _entity { entt::null };
+    InputPosition2D _input;
+    int _begin_time { 0 };
+
+    enum State_ : std::uint8_t {
+        _None = 0,
+        _Activated,
+        _Active,
+        _Deactivated
+    } _state { _None };
 };
 
 
 struct RotateContext : public ToolContext {
+    inline ToolType type() { return ToolType::Rotate; }
     RotateContext() {
         Debug() << "Rotate context established";
     }
@@ -240,6 +338,7 @@ private:
 
 
 struct ScaleContext : public ToolContext {
+    inline ToolType type() { return ToolType::Scale; }
     ScaleContext() {
         Debug() << "Scale context established";
     }
@@ -265,6 +364,9 @@ struct ScaleContext : public ToolContext {
 private:
     bool _is_active { false };
 };
+
+
+TranslateContext copy(TranslateContext ctx) { return TranslateContext{}; }
 
 
 /**
