@@ -99,6 +99,7 @@ private:
 
     // Track in order to determine whether time has changed
     int _previousTime { 0 };
+    Vector2i _mousePressPosition { 0, 0 };
 
     ToolContextRef _toolContext;
     ToolType _currentToolType { ToolType::Translate };
@@ -328,16 +329,6 @@ void Application::onTimeChanged() {
     auto startTime = sqty.range[0];
     auto current_time = sqty.current_time;
 
-    if (!Registry.empty<Deactivated>()) {
-        Registry.reset<Abort>();
-    }
-
-    if (current_time >= sqty.range[1]) {
-        Registry.view<Active>().each([](auto entity, const auto) {
-            Registry.assign_or_replace<Abort>(entity);
-        });
-    }
-
     if (current_time <= startTime) {
         reset();
     }
@@ -373,42 +364,12 @@ void Application::onTimeChanged() {
  */
 void Application::onToolEvent(entt::entity entity, const Sequentity::Event& event, int time) {
     auto data = static_cast<ToolEventData*>(event.data);
+    const auto index = time + (data->start - event.time);
 
-    if (data->input.count(time)) {
+    if (data->input.count(index)) {
         auto& tool = _allTools.at(data->type);
-        tool->update(entity, data->input[time]);
+        tool->update(entity, data->input[index]);
     }
-}
-
-
-void Application::onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
-    assert(event.data != nullptr);
-    auto data = static_cast<TranslateEventData*>(event.data);
-    const int index = time - event.time;
-    assert(data->positions.size() >= index);
-    auto value = data->positions[index];
-
-    Registry.assign_or_replace<MoveIntent>(entity, value.x, value.y);
-}
-
-
-void Application::onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time) {
-    assert(event.data != nullptr);
-    auto data = static_cast<RotateEventData*>(event.data);
-    const int index = time - event.time;
-    assert(data->orientations.size() >= index);
-
-    Registry.assign_or_replace<RotateIntent>(entity, data->orientations[index]);
-}
-
-
-void Application::onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time) {
-    assert(event.data != nullptr);
-    auto data = static_cast<ScaleEventData*>(event.data);
-    const int index = time - event.time;
-    assert(data->scales.size() >= index);
-
-    Registry.assign_or_replace<ScaleIntent>(entity, data->scales[index]);
 }
 
 
@@ -428,6 +389,8 @@ void Application::reset() {
     Registry.view<Size, InitialSize>().each([&](auto& size, const auto& initial) {
         size = initial;
     });
+
+    _toolContext->abort();
 }
 
 
@@ -439,18 +402,11 @@ void Application::clear() {
     Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
         for (auto& [type, channel] : track.channels) {
             for (auto& event : channel.events) {
-                if (type == TranslateEvent) {
-                    delete static_cast<TranslateEventData*>(event.data);
-                    deletedCount++;
-                }
-
-                else if (type == RotateEvent) {
-                    delete static_cast<RotateEventData*>(event.data);
-                    deletedCount++;
-                }
-
-                else if (type == ScaleEvent) {
-                    delete static_cast<ScaleEventData*>(event.data);
+                if (type == TranslateEvent ||
+                    type == RotateEvent ||
+                    type == ScaleEvent)
+                {
+                    delete static_cast<ToolEventData*>(event.data);
                     deletedCount++;
                 }
 
@@ -642,23 +598,7 @@ void Application::drawScene() {
                 Registry.assign<Hovered>(entity);
             }
 
-            if (ImGui::IsItemActivated()) {
-                Registry.assign<Activated>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition, deltaPosition);
-            }
-
-            else if (ImGui::IsItemActive()) {
-                Registry.assign<Active>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, absolutePosition, relativePosition, deltaPosition);
-            }
-
-            else if (ImGui::IsItemDeactivated()) {
-                Registry.assign<Deactivated>(entity, sqty.current_time);
-            }
-
             if (Registry.has<Tooltip>(entity)) {
-                // ImGui::SetCursorPos({ ImGui::GetMousePos().x + 10.0f, ImGui::GetMousePos().y });
-                // ImGui::Text(Registry.get<Tooltip>(entity).text);
                 ImGui::BeginTooltip();
                 ImGui::SetTooltip(Registry.get<Tooltip>(entity).text);
                 ImGui::EndTooltip();
@@ -670,8 +610,9 @@ void Application::drawScene() {
                                                                      const auto& color) {
             Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
                 if (event.type == TranslateEvent) {
-                    auto& data = *static_cast<TranslateEventData*>(event.data);
-                    auto pos = position + data.offset;
+                    auto data = static_cast<ToolEventData*>(event.data);
+                    auto input = data->input[data->start];
+                    Position pos = position + (input.absolute - data->origin);
                     auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
                     Widgets::Cursor(impos, color);
                 }
@@ -737,19 +678,14 @@ void Application::pollGamepad() {
 
             if (!is_down[button]) {
                 start_pos[entity] = Registry.get<Position>(entity);
-                Registry.assign<Activated>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, start_pos[entity], pos);
                 is_down[button] = true;
             }
 
             else {
-                Registry.assign<Active>(entity, sqty.current_time);
-                Registry.assign<InputPosition2D>(entity, start_pos[entity] + pos, pos);
             }
         }
 
         else if (is_down[button]) {
-            Registry.assign<Deactivated>(entity, sqty.current_time);
             is_down[button] = false;
         }
     };
@@ -774,9 +710,6 @@ void Application::drawEvent() {
     Registry.reset<InputPosition3D>();
 
     // Restore order to this world
-    Registry.reset<Active>();
-    Registry.reset<Activated>();
-    Registry.reset<Deactivated>();
     Registry.reset<Hovered>();
 
          if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
@@ -878,34 +811,49 @@ void Application::mousePressEvent(MouseEvent& event) {
     auto& sqty = Registry.ctx<Sequentity::State>();
 
     Registry.view<Hovered>().each([&](auto entity, const auto) {
-        _toolContext->begin(entity);
+        auto absolute = event.position() / dpiScaling();
+
+        InputPosition2D input;
+        input.absolute = { absolute.x(), absolute.y() };
+
+        _toolContext->begin(entity, input);
 
         if (_recording) {
-            _toolContext->record(sqty.current_time);
+            record_tool(*_toolContext.get(), sqty.current_time);
         }
     });
 
+    _mousePressPosition = event.position();
     if (_imgui.handleMousePressEvent(event)) return;
 }
 
+
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
     auto delta = event.relativePosition() / dpiScaling();
+    auto absolute = event.position() / dpiScaling();
+    auto relative = (event.position() - _mousePressPosition) / dpiScaling();
+
     InputPosition2D input;
+    input.absolute = { absolute.x(), absolute.y() };
+    input.relative = { relative.x(), relative.y() };
     input.delta = { delta.x(), delta.y() };
 
-    _toolContext->update(input);
+    if (_toolContext->update(input) && _recording) {
+        auto& sqty = Registry.ctx<Sequentity::State>();
 
-    auto& sqty = Registry.ctx<Sequentity::State>();
-    if (_recording) _toolContext->record(sqty.current_time);
+        if (sqty.current_time > sqty.range[1] - 1) {
+            _toolContext->abort();
+        }
+        else {
+            record_tool(*_toolContext.get(), sqty.current_time);
+        }
+    }
 
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 
 void Application::mouseReleaseEvent(MouseEvent& event) {
     _toolContext->finish();
-
-    auto& sqty = Registry.ctx<Sequentity::State>();
-    if (_recording) _toolContext->record(sqty.current_time);
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }
