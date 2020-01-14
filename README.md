@@ -67,7 +67,9 @@ auto& channel = Sequentity::PushChannel(track, MyEventType, "My first channel");
 auto& event = Sequentity::PushEvent(channel, 10, 5); // time, length
 
 while (true) {
+    ImGui::Begin("Event Editor");
     Sequentity::EventEditor(registry);
+    ImGui::End();
 }
 ```
 
