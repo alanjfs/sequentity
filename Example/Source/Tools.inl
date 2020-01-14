@@ -29,6 +29,8 @@ struct Deactivated { int time; };
 // Halt an ongoing iteration of enities with an `Active` component
 struct Abort {};
 
+struct Tooltip { const char* text; };
+
 enum class ToolType : std::uint8_t {
     Select,
     DragSelect,
@@ -43,9 +45,15 @@ enum class ToolType : std::uint8_t {
 
 struct Tool {
     ToolType type;
-    std::function<void()> write;
-    std::function<void(entt::entity entity, const Sequentity::Event& event, const int time)> read;
+    std::function<void(bool record)> execute;
 };
+
+// struct ToolContext {
+//     std::function<void()> preview;
+//     std::function<void()> begin;
+//     std::function<void()> update;
+//     std::function<void()> finish;
+// };
 
 // From e.g. Wacom tablet
 struct InputPressure  { float strength; };
@@ -93,6 +101,12 @@ struct ScrubEventData {
     std::vector<int> deltas;
 };
 
+// struct ToolEventData {
+//     Tool tool;
+//     std::function<void()> execute { []() {}; };
+//     std::vector<std::function<void()>> updates;
+// };
+
 
 // Possible event types
 enum EventType : Sequentity::EventType {
@@ -113,6 +127,143 @@ enum EventType : Sequentity::EventType {
     MouseReleaseEvent,
     KeyPressEvent,
     KeyReleaseEvent,
+
+    ToolEvent,
+};
+
+
+struct ToolContext {
+    virtual void begin() {}
+    virtual void update() {}
+    virtual void update(InputPosition2D) {}
+    virtual void finish() {}
+};
+
+
+struct SelectContext : public ToolContext {
+    void begin() override {
+        Debug() << "Selecting..";
+    }
+
+    void update() override {}
+    void finish() override {}
+};
+
+
+struct ScrubContext : public ToolContext {
+    void begin() override {
+        Debug() << "Scrubbing..";
+    }
+
+    void update() override {}
+    void finish() override {}
+};
+
+
+struct TranslateContext : public ToolContext {
+    TranslateContext() {
+        Debug() << "Setting Translate mouse cursor..";
+        Debug() << "Setting Translate tool tips..";
+    }
+
+    ~TranslateContext() {
+        // Handle case of user switching tool in the middle of updating
+        if (Registry.valid(_entity)) finish();
+    }
+
+    void begin() override {
+        Registry.view<Hovered>().each([&](auto entity, const auto) {
+            _entity = entity;
+
+            Registry.reset<Selected>();
+            Registry.assign<Selected>(entity);
+        });
+    }
+
+    void update(InputPosition2D input) {
+        Registry.reset<Tooltip>();
+
+        if (Registry.valid(_entity)) {
+            if (!Registry.has<MoveIntent>(_entity)) {
+                Registry.assign<MoveIntent>(_entity, input.delta.x, input.delta.y);
+
+            } else {
+                auto& intent = Registry.get<MoveIntent>(_entity);
+                intent.x += input.delta.x;
+                intent.y += input.delta.y;
+            }
+        }
+
+        else {
+            // Let the user know what happens once clicked
+            Registry.view<Hovered>().each([](auto entity, const auto) {
+                Registry.assign<Tooltip>(entity, "Drag to translate");
+            });
+        }
+    }
+
+    void finish() override {
+        _entity = entt::null;
+    }
+
+private:
+    entt::entity _entity { entt::null };
+};
+
+
+struct RotateContext : public ToolContext {
+    RotateContext() {
+        Debug() << "Rotate context established";
+    }
+
+    ~RotateContext() {
+        Debug() << "Rotate context destroyed";
+    }
+
+    void begin() override {
+        _is_active = true;
+        Debug() << "Beginning!";
+    }
+
+    void update() override {
+        if (_is_active) Debug() << "updating..";
+    }
+
+    void finish() override {
+        _is_active = false;
+        Debug() << "Finishing..";
+    }
+
+private:
+    bool _is_active { false };
+};
+
+
+struct ScaleContext : public ToolContext {
+    ScaleContext() {
+        Debug() << "Scale context established";
+    }
+
+    ~ScaleContext() {
+        Debug() << "Scale context destroyed";
+    }
+
+    void begin() override {
+        _is_active = true;
+        Debug() << "Beginning!";
+    }
+
+    void update() override {
+        if (_is_active) Debug() << "updating..";
+    }
+
+    void finish() override {
+        _is_active = false;
+        Debug() << "Finishing..";
+    }
+
+private:
+    bool _is_active { false };
 };
 
 
@@ -121,8 +272,8 @@ enum EventType : Sequentity::EventType {
  *
  *
  */
-static void SelectTool() {
-    Registry.view<Name, Deactivated>().each([](auto entity, const auto& name, const auto&) {
+static void SelectTool(bool record) {
+    Registry.view<Name, Activated>().each([](auto entity, const auto& name, const auto&) {
         
         // Ensure there is only ever 1 selected entity
         Registry.reset<Selected>();
@@ -143,16 +294,20 @@ static void SelectTool() {
  *
  *
  */
-static void TranslateTool() {
+static void TranslateTool(bool record) {
     // Handle press input of type: 2D range, relative anything with a position
 
-    Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([](
+    Registry.view<Name, Activated, InputPosition2D, Color, Position>().each([record](
                                                                       auto entity,
                                                                       const auto& name,
                                                                       const auto& state,
                                                                       const auto& input,
                                                                       const auto& color,
                                                                       const auto& position) {
+        Registry.reset<Selected>();
+        Registry.assign<Selected>(entity);
+
+        if (!record) return;
 
         // The default name for any new track is coming from the owning entity
         if (!Registry.has<Sequentity::Track>(entity)) {
@@ -181,15 +336,19 @@ static void TranslateTool() {
             TranslateEvent,                     /* type= */
             static_cast<void*>(data)            /* data= */
         });
-
-        Registry.reset<Selected>();
-        Registry.assign<Selected>(entity);
     });
 
-    Registry.view<Active, InputPosition2D, Sequentity::Track>(entt::exclude<Abort>).each([](
+    Registry.view<Active, InputPosition2D>(entt::exclude<Abort>).each([record](
+                                                                auto entity,
                                                                 const auto& state,
-                                                                const auto& input,
-                                                                auto& track) {
+                                                                const auto& input) {
+        if (!record) {
+            Registry.assign<MoveIntent>(entity, input.delta.x, input.delta.y);
+            return;
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(entity);
+        
         if (!track.channels.count(TranslateEvent)) {
             Warning() << "TranslateTool on" << track.label << "didn't have a TranslateEvent";
             return;
@@ -231,7 +390,7 @@ static void TranslateTool() {
  *   \___
  *
  */
-static void RotateTool() {
+static void RotateTool(bool record) {
     Registry.view<Name, Activated, InputPosition2D, Color, Orientation>().each([](
                                                                          auto entity,
                                                                          const auto& name,
@@ -312,7 +471,7 @@ static void RotateTool() {
  *   /              \
  *
  */
-static void ScaleTool() {
+static void ScaleTool(bool record) {
     Registry.view<Name, Activated, InputPosition2D, Color, Size>().each([](
                                                                          auto entity,
                                                                          const auto& name,
@@ -388,7 +547,7 @@ static void ScaleTool() {
  * it currently can't do that, unless an entity is active. So that's a bug.
  *
  */
-static void ScrubTool() {
+static void ScrubTool(bool record) {
     // Press
     static int previous_time { 0 };
     Registry.view<Activated, InputPosition2D>().each([](const auto& activated, const auto& input) {

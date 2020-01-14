@@ -15,7 +15,9 @@ struct InitialSize : Size {};
 
 using Index = unsigned int;
 
+struct Preselected {};
 struct Selected {};
+struct Hovered {};
 
 using Color = ImVec4;
 

@@ -145,4 +145,25 @@ auto Button(const char* label, bool checked, float width = 100.0f) -> bool {
     return pressed;
 }
 
+
+auto RecordButton(const char* label, bool checked, float width = 100.0f) -> bool {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 10.0f, 20.0f });
+
+    if (checked) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(ImColor::HSV(0.0f, 0.7f, 0.7f)));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(ImColor::HSV(0.0f, 0.7f, 0.8f)));
+    }
+    else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 0.1f));
+    }
+
+    const bool pressed = ImGui::Button(label, {width, 0});
+
+    if (checked) ImGui::PopStyleColor();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    return pressed;
+}
+
 }
