@@ -79,6 +79,7 @@ struct Event {
     float height { 0.0f };
     float thickness { 0.0f };
 
+    entt::entity owner { entt::null };
 };
 
 
@@ -92,6 +93,10 @@ struct Channel {
     ImVec4 color { ImColor::HSV(0.33f, 0.5f, 1.0f) };
 
     std::vector<Event> events;
+
+    entt::entity owner { entt::null };
+    std::vector<entt::entity> children;
+    EventType type;
 };
 
 
@@ -111,6 +116,9 @@ struct Track {
     
     // Internal
     bool _notsoloed { false };
+
+    entt::entity owner { entt::null };
+    std::vector<entt::entity> children;
 };
 
 
@@ -127,6 +135,7 @@ struct Selected {};
  * @brief Lambda signatures
  *
  */
+using EntityIntersectFunc = std::function<void(const entt::entity, const entt::entity)>;
 using IntersectFunc = std::function<void(const Event&)>;
 using IntersectWithPreviousFunc = std::function<void(const Event*, const Event&)>;
 using IntersectWithPreviousAndNextFunc = std::function<void(const Event&, const Event&, const Event&)>;
@@ -201,6 +210,7 @@ void DataEditor(entt::registry& registry, bool* p_open = nullptr);
  *
  *
  */
+void Intersect(entt::registry& registry, TimeType time, IntersectFunc func);
 void Intersect(const Track& track, TimeType time, IntersectFunc func);
 void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func);
 
@@ -413,6 +423,29 @@ static void _transition(float& current, float target, float velocity, float epsi
 inline void _sort_channel(Channel& channel) {
     std::sort(channel.events.begin(), channel.events.end(), [] (const Event& a, const Event& b) {
         return a.time < b.time;
+    });
+}
+
+
+void Intersect(entt::registry& registry, TimeType time, EntityIntersectFunc func) {
+    registry.view<Track>().each([&](const auto& track) {
+        if (track.mute) return;
+        if (track._notsoloed) return;
+
+        for (auto channel_entity : track.children) {
+            auto& channel = registry.get<Channel>(channel_entity);
+
+            for (auto event_entity : channel.children) {
+                auto& event = registry.get<Event>(event_entity);
+
+                if (event.removed) continue;
+                if (!event.enabled) continue;
+
+                if (_contains(event, time)) {
+                    func(track.owner, event_entity);
+                }
+            }
+        }
     });
 }
 
@@ -869,8 +902,13 @@ void EventEditor(entt::registry& registry) {
             //     ________      ____________________________
             //    |________|    |____________________________|
             //
-            for (auto& [type, channel] : track.channels) {
-                for (auto& event : channel.events) {
+            for (auto channel_entity : track.children) {
+            // for (auto& [type, channel] : track.channels) {
+                auto& channel = registry.get<Channel>(channel_entity);
+
+                for (auto event_entity : channel.children) {
+                // for (auto& event : channel.events) {
+                    auto& event = registry.get<Event>(event_entity);
 
                     ImVec2 pos { time_to_px(event.time), 0.0f };
                     ImVec2 size { time_to_px(event.length), state.zoom[1] };
@@ -1001,6 +1039,12 @@ void EventEditor(entt::registry& registry) {
         });
     };
 
+    // auto Events2 = [&]() {
+    //     registry.view<Event>().each([](auto entity, const auto& event) {
+    //         auto& 
+    //     });
+    // };
+
     auto Range = [&]() {
         ImVec2 cursor { C.x, C.y };
         ImVec2 range_cursor_start { state.range[0] * zoom_ / stride_ + state.pan[0], TimelineTheme.height };
@@ -1111,7 +1155,10 @@ void EventEditor(entt::registry& registry) {
             // |-- channel
             // |__ channel
             //
-            for (auto& [type, channel] : track.channels) {
+            // for (auto& [type, channel] : track.channels) {
+            for (auto channel_entity : track.children) {
+                auto& channel = registry.get<Channel>(channel_entity);
+
                 static const ImVec2 indicator_size { 9.0f, 9.0f };
                 const ImVec2 indicator_pos = {
                     ListerTheme.width - indicator_size.x - padding.x,
