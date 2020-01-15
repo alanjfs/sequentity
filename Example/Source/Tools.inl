@@ -166,10 +166,8 @@ protected:
     InputPosition2D _input { 0, 0 };
 };
 
-
-// TODO: Recording is called at different times for the same tool
-//       and need to pass the event amongst themselves. This is ugly.
 static entt::entity ACTIVE_EVENT { entt::null };
+static entt::entity ACTIVE_TRACK { entt::null };
 
 
 void record_tool(const ToolContext& tool, int time) {
