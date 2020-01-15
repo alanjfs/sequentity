@@ -12,8 +12,8 @@ else()
 endif()
 
 include_directories(
-    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015/${CONFIGURATION}/include
-    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015/${CONFIGURATION}/include/MagnumExternal/OpenGL
+    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/include
+    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/include/MagnumExternal/OpenGL
     ${CMAKE_SOURCE_DIR}/External/magnum-singles
     ${CMAKE_SOURCE_DIR}/External/imgui/x64-windows/include
     ${CMAKE_SOURCE_DIR}/External/entt
@@ -21,7 +21,7 @@ include_directories(
 )
 
 link_directories(
-    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015/${CONFIGURATION}/lib
+    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/lib
 )
 
 
@@ -63,7 +63,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /MDd /Zi /EHsc)
 else()
     target_compile_definitions(${PROJECT_NAME} PRIVATE -DNDEBUG)
-    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /Od /EHsc /wd4251 /MP /MD)
+    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /EHsc /wd4251 /MP /MD)
 endif()
 
 # Magnum suffixes libraries for debug builds
@@ -74,15 +74,11 @@ else()
 endif()
 
 target_link_libraries(${PROJECT_NAME}
-    CorradePluginManager${MAGNUM_LIB_SUFFIX}
-    CorradeUtility${MAGNUM_LIB_SUFFIX}
+    CorradeUtility
     glfw3
-    Magnum${MAGNUM_LIB_SUFFIX}
-    MagnumGL${MAGNUM_LIB_SUFFIX}
-    MagnumMeshTools${MAGNUM_LIB_SUFFIX}
-    MagnumPrimitives${MAGNUM_LIB_SUFFIX}
-    MagnumGlfwApplication${MAGNUM_LIB_SUFFIX}
-    MagnumShaders${MAGNUM_LIB_SUFFIX}
-    MagnumTrade${MAGNUM_LIB_SUFFIX}
-    MagnumImGuiIntegration${MAGNUM_LIB_SUFFIX}
+    opengl32
+    Magnum
+    MagnumGL
+    MagnumGlfwApplication
+    MagnumImGuiIntegration
 )
