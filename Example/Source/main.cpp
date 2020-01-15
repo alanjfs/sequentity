@@ -33,7 +33,6 @@ using namespace Magnum;
 using namespace Math::Literals;
 
 static entt::registry Registry;
-static entt::registry Events;
 
 // For readability only; this really is just one big cpp file
 #include "Utils.inl"
@@ -205,12 +204,10 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     // Keep tracks sorted in the order of our application Index component
     // E.g. in the order of your 3D character hierarchy
-    // Events.on_construct<Sequentity::Track>().connect<&Application::onNewTrack>(*this);
+    Registry.on_construct<Sequentity::Track>().connect<&Application::onNewTrack>(*this);
 
     // Initialise internal sqty
-    Events.set<Sequentity::State>();
-
-    Events.create();  // Reserve ID 0
+    Registry.set<Sequentity::State>();
 
     setCurrentTool(ToolType::Translate);
 
@@ -226,9 +223,9 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
 
 void Application::onNewTrack() {
-    // Events.sort<Sequentity::Track>([this](const entt::entity lhs, const entt::entity rhs) {
-    //     return Events.get<Index>(lhs) < Events.get<Index>(rhs);
-    // });
+    Registry.sort<Sequentity::Track>([this](const entt::entity lhs, const entt::entity rhs) {
+        return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
+    });
 }
 
 
@@ -304,7 +301,7 @@ void Application::play() {
 
 
 void Application::step(int delta) {
-    auto& sqty = Events.ctx_or_set<Sequentity::State>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
     auto time = sqty.current_time + delta;
 
     if (time > sqty.range[1]) {
@@ -320,7 +317,7 @@ void Application::step(int delta) {
 
 
 void Application::stop() {
-    auto& sqty = Events.ctx_or_set<Sequentity::State>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
     sqty.current_time = sqty.range[0];
     _playing = false;
@@ -328,7 +325,7 @@ void Application::stop() {
 
 
 void Application::onTimeChanged() {
-    auto& sqty = Events.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
     auto startTime = sqty.range[0];
     auto current_time = sqty.current_time;
 
@@ -337,19 +334,44 @@ void Application::onTimeChanged() {
     }
 
     else {
-        Sequentity::Intersect(Events, current_time, [&](const entt::entity subject, const entt::entity event) {
-            auto& data = Events.get<ToolEventData>(event);
-            auto time = Events.get<Sequentity::Event>(event).time;
-            const auto index = current_time + (data.start - time);
+        Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
+            Sequentity::Intersect(track, current_time, [&](auto* previous, auto& event) {
+                if (event.data == nullptr) {
+                    // Some events don't carry data, and that's OK
+                    return;
+                }
 
-            if (data.input.count(index)) {
-                auto& tool = _allTools.at(data.type);
-                auto& input = data.input[index];
-                tool->update(subject, input);
-            }
+                if (event.type == TranslateEvent)   this->onToolEvent(entity, event, current_time);
+                else if (event.type == RotateEvent) this->onToolEvent(entity, event, current_time);
+                else if (event.type == ScaleEvent)  this->onToolEvent(entity, event, current_time);
+
+                else {
+                    Warning() << "Unknown event type!" << event.type;
+                }
+            });
         });
     }
 }
+
+
+/**
+ * @brief Sequentity event handlers
+ *
+ * Tools produce events that the application consumes relative the current time
+ * For each type of event, there is a different response, applicable to
+ * different data.
+ *
+ */
+void Application::onToolEvent(entt::entity entity, const Sequentity::Event& event, int time) {
+    auto data = static_cast<ToolEventData*>(event.data);
+    const auto index = time + (data->start - event.time);
+
+    if (data->input.count(index)) {
+        auto& tool = _allTools.at(data->type);
+        tool->update(entity, data->input[index]);
+    }
+}
+
 
 auto Application::dpiScaling() const -> Vector2 { return _dpiScaling; }
 
@@ -374,12 +396,10 @@ void Application::reset() {
 
 void Application::clear() {
 
-    Events.reset();
-
     // TODO: This is much too explicit and error prone. Is there a better
     //       way to assert that when a channel goes away, so does the data?
     int deletedCount { 0 };
-    Events.view<Sequentity::Track>().each([&deletedCount](auto& track) {
+    Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
         for (auto& [type, channel] : track.channels) {
             for (auto& event : channel.events) {
                 if (type == TranslateEvent ||
@@ -399,7 +419,7 @@ void Application::clear() {
         }
     });
 
-    Events.reset<Sequentity::Track>();
+    Registry.reset<Sequentity::Track>();
 
     reset();
 
@@ -459,7 +479,7 @@ void Application::drawCentralWidget() {
 
 
 void Application::drawTransport() {
-    auto& sqty = Events.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
 
     ImGui::Begin("Transport", nullptr);
     {
@@ -509,7 +529,7 @@ void Application::setCurrentTool(ToolType type) {
 
 
 void Application::drawScene() {
-    auto& sqty = Events.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
     static bool windowEntered { false };
 
     ImGui::Begin("3D Viewport", nullptr);
@@ -585,19 +605,19 @@ void Application::drawScene() {
             }
         });
 
-        // Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
-        //                                                              const auto& track,
-        //                                                              const auto& color) {
-        //     Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
-        //         if (event.type == TranslateEvent) {
-        //             auto data = static_cast<ToolEventData*>(event.data);
-        //             auto input = data->input[data->start];
-        //             Position pos = position + (input.absolute - data->origin);
-        //             auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
-        //             Widgets::Cursor(impos, color);
-        //         }
-        //     });
-        // });
+        Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
+                                                                     const auto& track,
+                                                                     const auto& color) {
+            Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
+                if (event.type == TranslateEvent) {
+                    auto data = static_cast<ToolEventData*>(event.data);
+                    auto input = data->input[data->start];
+                    Position pos = position + (input.absolute - data->origin);
+                    auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                    Widgets::Cursor(impos, color);
+                }
+            });
+        });
     }
 
     ImGui::End();
@@ -624,14 +644,14 @@ void Application::drawEventEditor() {
             }
         }
 
-        Sequentity::EventEditor(Events);
+        Sequentity::EventEditor(Registry);
     }
     ImGui::End();
 }
 
 
 void Application::pollGamepad() {
-    const auto& sqty = Events.ctx<Sequentity::State>();
+    const auto& sqty = Registry.ctx<Sequentity::State>();
 
     // Work around the fact that we're working in absolute coords for position
     static std::unordered_map<entt::entity, Position> start_pos;
@@ -703,7 +723,7 @@ void Application::drawEvent() {
 
     pollGamepad();
 
-    auto& sqty = Events.ctx_or_set<Sequentity::State>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
     if (_playing) step(1);
 
@@ -788,7 +808,7 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 
 
 void Application::mousePressEvent(MouseEvent& event) {
-    auto& sqty = Events.ctx<Sequentity::State>();
+    auto& sqty = Registry.ctx<Sequentity::State>();
 
     Registry.view<Hovered>().each([&](auto entity, const auto) {
         auto absolute = event.position() / dpiScaling();
@@ -819,7 +839,7 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
     input.delta = { delta.x(), delta.y() };
 
     if (_toolContext->update(input) && _recording) {
-        auto& sqty = Events.ctx<Sequentity::State>();
+        auto& sqty = Registry.ctx<Sequentity::State>();
 
         if (sqty.current_time > sqty.range[1] - 1) {
             _toolContext->abort();

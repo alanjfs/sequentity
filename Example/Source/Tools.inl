@@ -166,119 +166,59 @@ protected:
     InputPosition2D _input { 0, 0 };
 };
 
-static entt::entity ACTIVE_EVENT { entt::null };
-static entt::entity ACTIVE_TRACK { entt::null };
-
 
 void record_tool(const ToolContext& tool, int time) {
     if (!tool.state()) return;
 
     if (tool.state() == ToolState_Activated) {
-		Debug() << "About to create a new event..";
-        const auto& [name, origin, color] = Registry.get<Name, Position, Color>(tool.subject());
+        auto [name, color] = Registry.get<Name, Color>(tool.subject());
 
-        // Test for entities
-        entt::entity track_entity { entt::null };
-        entt::entity channel_entity { entt::null };
-        entt::entity event_entity { entt::null };
-
-        // Find existing track
-        Events.view<Sequentity::Track>().each([&](auto entity, const auto& track_) {
-            if (track_.owner == tool.subject()) {
-                track_entity = entity;
-            }
-        });
-
-        if (track_entity == entt::null) {
-            track_entity = Events.create();
-
-            Events.assign<Sequentity::Track>(track_entity);
-
-            auto& track_ = Events.get<Sequentity::Track>(track_entity);
-            track_.label = name.text;
-            track_.color = color;
-            track_.owner = tool.subject();
-
-            // Tracks need an order consistent with the external scene hierarchy
-            // TODO: This seems inefficient
-            auto index = Registry.get<Index>(tool.subject());
-            Events.assign<Index>(track_entity, index);
-
-            Events.sort<Sequentity::Track>([](const entt::entity lhs, const entt::entity rhs) {
-                return Events.get<Index>(lhs) < Events.get<Index>(rhs);
-            });
-
-            Debug() << "Created new track '" << track_.label << "'";
+        if (!Registry.has<Sequentity::Track>(tool.subject())) {
+            Registry.assign<Sequentity::Track>(tool.subject(), name.text, color);
         }
 
-        assert(Events.has<Sequentity::Track>(track_entity));
-        auto& track_ = Events.get<Sequentity::Track>(track_entity);
-        
-        // Find existing channel
-        Events.view<Sequentity::Channel>().each([&](auto entity, const auto& channel_) {
-            if (channel_.owner == track_entity && channel_.type == tool.eventType()) {
-                channel_entity = entity;
-            }
+        auto origin = Registry.get<Position>(tool.subject());
+        auto* data = new ToolEventData{}; {
+            data->start = time;
+            data->input[time] = tool.input();
+            data->type = tool.type();
+            data->origin = origin;
+        }
+
+        auto& track = Registry.get<Sequentity::Track>(tool.subject());
+        bool is_new_channel = !Sequentity::HasChannel(track, tool.eventType());
+        auto& channel = Sequentity::PushChannel(track, tool.eventType());
+
+        if (is_new_channel) {
+            channel.label = tool.name();
+            channel.color = tool.color();
+        }
+
+        Sequentity::PushEvent(channel, {
+            time,
+            1,          /* length= */
+            color,
+            tool.eventType(),
+            static_cast<void*>(data)
         });
-
-        if (channel_entity == entt::null) {
-            channel_entity = Events.create();
-            auto& channel_ = Events.assign<Sequentity::Channel>(channel_entity);
-            channel_.label = tool.name();
-            channel_.color = tool.color();
-            channel_.owner = track_entity;
-            channel_.type = tool.eventType();
-
-            // TODO: I don't like storing entities in another entity.
-            track_.children.push_back(channel_entity);
-
-            // We need channels to have a consistent order across tracks
-            // TODO: This doesn't look very efficient
-            std::sort(track_.children.begin(),track_.children.end(), [](const entt::entity lhs,
-                                                                        const entt::entity rhs) -> bool {
-                return Events.get<Sequentity::Channel>(lhs).type < Events.get<Sequentity::Channel>(rhs).type;
-            });
-
-            Debug() << "Creating new channel '" << channel_.label << "'";
-		}
-
-        assert(Events.has<Sequentity::Channel>(channel_entity));
-        auto& channel_ = Events.get<Sequentity::Channel>(channel_entity);
-
-        Debug() << "Creating new event..";
-        event_entity = Events.create();
-        auto& event = Events.assign<Sequentity::Event>(event_entity);
-        event.time = time;
-        event.length = 1;
-        event.color = color;
-        event.owner = channel_entity;
-
-        // Store all available input with this event
-        Events.assign<InputPosition2D>(event_entity, tool.input());
-        auto& data = Events.assign<ToolEventData>(event_entity);
-        data.start = time;
-        data.input[time] = tool.input();
-        data.type = tool.type();
-        data.origin = origin;
-
-        channel_.children.push_back(event_entity);
-
-        ACTIVE_EVENT = event_entity;
     }
 
     else if (tool.state() == ToolState_Active) {
-        auto event_entity = ACTIVE_EVENT;
-        if (event_entity == entt::null) {
-            Debug() << "It's null..";
-        } else {
-            // Update event
-            auto& event = Events.get<Sequentity::Event>(event_entity);
-            event.length = time - event.time + 1;
-
-            // Update payload
-            auto& payload = Events.get<ToolEventData>(event_entity);
-            payload.input[time] = tool.input();
+        auto& track = Registry.get<Sequentity::Track>(tool.subject());
+        
+        if (!track.channels.count(tool.eventType())) {
+            Warning() << "This is a tool bug";
+            return;
         }
+
+        auto& channel = track.channels[tool.eventType()];
+        auto& event = channel.events.back();
+
+        auto data = static_cast<ToolEventData*>(event.data);
+
+        // Update existing data
+        data->input[time] = tool.input();
+        event.length = time - event.time + 1;
     }
 
     else if (tool.state() == ToolState_Deactivated) {
@@ -321,10 +261,10 @@ struct ScrubContext : public ToolContext {
  *
  */
 struct TranslateContext : public ToolContext {
-    inline ToolType type() const override        { return ToolType::Translate; }
+    inline ToolType type() const override  { return ToolType::Translate; }
     inline EventType eventType() const override  { return TranslateEvent; }
-    inline const char* name() const override     { return "Translate"; }
-    inline ImVec4 color() const override         { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+    inline const char* name() const override  { return "Translate"; }
+    inline ImVec4 color() const override { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
 
     void setup() {
         Debug() << "Setting Translate mouse cursor..";
