@@ -585,19 +585,18 @@ void Application::drawScene() {
             }
         });
 
-        // Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
-        //                                                              const auto& track,
-        //                                                              const auto& color) {
-        //     Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
-        //         if (event.type == TranslateEvent) {
-        //             auto data = static_cast<ToolEventData*>(event.data);
-        //             auto input = data->input[data->start];
-        //             Position pos = position + (input.absolute - data->origin);
-        //             auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
-        //             Widgets::Cursor(impos, color);
-        //         }
-        //     });
-        // });
+        Sequentity::Intersect(Events, sqty.current_time, [&](entt::entity subject, entt::entity event_entity) {
+            auto& event = Events.get<Sequentity::Event>(event_entity);
+            auto& position = Registry.get<Position>(subject);
+
+            if (event.type == TranslateEvent) {
+                auto data = static_cast<ToolEventData*>(event.data);
+                auto input = data->input[data->start];
+                Position pos = position + (input.absolute - data->origin);
+                auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                Widgets::Cursor(impos, ImColor{1.0f, 1.0f, 1.0f});
+            }
+        });
     }
 
     ImGui::End();
