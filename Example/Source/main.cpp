@@ -7,11 +7,6 @@ Example usage of Sequentity.inl
 // (Optional) Magnum prefers to have its imgui.h included first
 #include <Magnum/ImGuiIntegration/Context.hpp>
 
-// Sequentity is a single-file library, which means .h and .cpp files are combined
-// This define causes the .cpp portion of the library to be included and only needs
-// to exist (before the #include) in *one* of your translation units.
-#define SEQUENTITY_IMPLEMENTATION
-
 #include <Sequentity.h>
 
 #include <string>
@@ -34,6 +29,20 @@ using namespace Math::Literals;
 
 static entt::registry Registry;
 
+struct ApplicationState {
+    bool playing { false };
+    bool recording { false };
+
+    // Debugging, for control over the event loop
+    bool running { true };
+
+    // Track in order to determine whether time has changed
+    int previousTime { 0 };
+    Vector2i mousePressPosition { 0, 0 };
+
+};
+
+
 // For readability only; this really is just one big cpp file
 #include "Utils.inl"
 #include "Theme.inl"
@@ -42,7 +51,7 @@ static entt::registry Registry;
 #include "IntentSystem.inl"
 #include "Tools.inl"
 
-using ToolContextRef = std::unique_ptr<ToolContext>;
+
 
 class Application : public Platform::Application {
 public:
@@ -50,6 +59,7 @@ public:
 
     void drawEvent() override;
     void drawScene();
+    void drawTool();
     void drawTransport();
     void drawCentralWidget();
     void drawEventEditor();
@@ -58,7 +68,7 @@ public:
     void step(int time);
     void stop();
 
-    void setCurrentTool(ToolType type);
+    void setCurrentTool(Tool::Type type);
 
     void setup();  // Populate registry with entities and components
     void reset();  // Reset all entities
@@ -71,6 +81,8 @@ private:
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
+
+    Tool::Ptr& currentTool() { return _allTools[_currentToolType]; }
 
     // Sequentity event handlers
     void onToolEvent(entt::entity entity, const Sequentity::Event& event, int time);
@@ -91,21 +103,12 @@ private:
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
-    bool _playing { false };
-    bool _recording { false };
+    Tool::Recorder _recorder{};
 
-    // Debugging, for control over the event loop
-    bool _running { true };
+    Tool::Type _currentToolType { Tool::Type::Translate };
+    Tool::Type _previousToolType { Tool::Type::Translate };
 
-    // Track in order to determine whether time has changed
-    int _previousTime { 0 };
-    Vector2i _mousePressPosition { 0, 0 };
-
-    ToolContextRef _toolContext;
-    ToolType _currentToolType { ToolType::Translate };
-    ToolType _previousToolType { ToolType::Translate };
-
-    std::unordered_map<ToolType, ToolContextRef> _allTools;
+    std::unordered_map<Tool::Type, Tool::Ptr> _allTools;
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -115,18 +118,24 @@ private:
     // E.g. when working in the 3d view, a different set of tools
     // are made available, with one being "current".
     struct ApplicationContext {
-        ToolType currentTool { ToolType::Select };
+        Tool::Type currentTool { Tool::Type::Select };
     } _applicationContext;
 
     struct SceneContext {
-        ToolType currentTool { ToolType::Translate };
+        Tool::Type currentTool { Tool::Type::Translate };
     } _sceneContext;
 
     struct EditorContext {
-        ToolType currentTool { ToolType::Select };
+        Tool::Type currentTool { Tool::Type::Select };
     } _editorContext;
 
+    // Experimental gamepad support
     std::vector<entt::entity> _entities;
+
+    // Experimental multi-device support
+    // If we map a tool, to which device are we mapping it?
+    Tool::Device _currentDevice { Tool::Device::Mouse };
+    std::unordered_map<Tool::Device, Tool::Ptr> _toolByDevice;
 };
 
 
@@ -206,16 +215,19 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     // E.g. in the order of your 3D character hierarchy
     Registry.on_construct<Sequentity::Track>().connect<&Application::onNewTrack>(*this);
 
-    // Initialise internal sqty
+    // Initialise state
     Registry.set<Sequentity::State>();
+    Registry.set<ApplicationState>();
 
-    setCurrentTool(ToolType::Translate);
+    Registry.set<Tool::Collection>();
 
-    _allTools[ToolType::Select] = std::make_unique<SelectContext>();
-    _allTools[ToolType::Translate] = std::make_unique<TranslateContext>();
-    _allTools[ToolType::Rotate] = std::make_unique<RotateContext>();
-    _allTools[ToolType::Scale] = std::make_unique<ScaleContext>();
-    _allTools[ToolType::Scrub] = std::make_unique<ScrubContext>();
+    _allTools[Tool::Type::Select] = std::make_unique<Tool::SelectContext>();
+    _allTools[Tool::Type::Translate] = std::make_unique<Tool::TranslateContext>();
+    _allTools[Tool::Type::Rotate] = std::make_unique<Tool::RotateContext>();
+    _allTools[Tool::Type::Scale] = std::make_unique<Tool::ScaleContext>();
+    _allTools[Tool::Type::Scrub] = std::make_unique<Tool::ScrubContext>();
+
+    setCurrentTool(Tool::Type::Translate);
 
     setup();
     play();
@@ -291,12 +303,12 @@ void Application::setup() {
 
 
 void Application::play() {
-    if (!_playing) {
+    if (!Registry.ctx<ApplicationState>().playing) {
         stop();
         reset();
     }
 
-    _playing ^= true;
+    Registry.ctx<ApplicationState>().playing ^= true;
 }
 
 
@@ -320,7 +332,7 @@ void Application::stop() {
     auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
     sqty.current_time = sqty.range[0];
-    _playing = false;
+    Registry.ctx<ApplicationState>().playing = false;
 }
 
 
@@ -334,41 +346,22 @@ void Application::onTimeChanged() {
     }
 
     else {
-        Registry.view<Sequentity::Track>().each([&](auto entity, const auto& track) {
-            Sequentity::Intersect(track, current_time, [&](auto* previous, auto& event) {
-                if (event.data == nullptr) {
-                    // Some events don't carry data, and that's OK
-                    return;
-                }
+        Sequentity::Intersect(Registry, current_time, [&](entt::entity subject,
+                                                          const Sequentity::Channel& channel,
+                                                          const Sequentity::Event& event) {
+            if (event.data == nullptr) {
+                // Some events don't carry data, and that's OK
+                return;
+            }
 
-                if (event.type == TranslateEvent)   this->onToolEvent(entity, event, current_time);
-                else if (event.type == RotateEvent) this->onToolEvent(entity, event, current_time);
-                else if (event.type == ScaleEvent)  this->onToolEvent(entity, event, current_time);
+            auto data = static_cast<Tool::EventData*>(event.data);
+            const auto index = current_time + (data->start - event.time);
 
-                else {
-                    Warning() << "Unknown event type!" << event.type;
-                }
-            });
+            if (data->input.count(index)) {
+                Tool::Context* tool = static_cast<Tool::Context*>(channel.data);
+                tool->update(subject, data->input[index]);
+            }
         });
-    }
-}
-
-
-/**
- * @brief Sequentity event handlers
- *
- * Tools produce events that the application consumes relative the current time
- * For each type of event, there is a different response, applicable to
- * different data.
- *
- */
-void Application::onToolEvent(entt::entity entity, const Sequentity::Event& event, int time) {
-    auto data = static_cast<ToolEventData*>(event.data);
-    const auto index = time + (data->start - event.time);
-
-    if (data->input.count(index)) {
-        auto& tool = _allTools.at(data->type);
-        tool->update(entity, data->input[index]);
     }
 }
 
@@ -390,7 +383,7 @@ void Application::reset() {
         size = initial;
     });
 
-    _toolContext->abort();
+    currentTool()->abort();
 }
 
 
@@ -398,19 +391,22 @@ void Application::clear() {
 
     // TODO: This is much too explicit and error prone. Is there a better
     //       way to assert that when a channel goes away, so does the data?
-    int deletedCount { 0 };
-    Registry.view<Sequentity::Track>().each([&deletedCount](auto& track) {
+    int eventCount { 0 };
+    int channelCount { 0 };
+    Registry.view<Sequentity::Track>().each([&channelCount, &eventCount](auto& track) {
         for (auto& [type, channel] : track.channels) {
-            for (auto& event : channel.events) {
-                if (type == TranslateEvent ||
-                    type == RotateEvent ||
-                    type == ScaleEvent)
-                {
-                    delete static_cast<ToolEventData*>(event.data);
-                    deletedCount++;
-                }
 
-                else if (type == EventType::MousePressEvent || type == EventType::MouseMoveEvent || type == EventType::MouseReleaseEvent) {}
+            delete static_cast<Tool::Context*>(channel.data);
+            channelCount++;
+
+            for (auto& event : channel.events) {
+                if (type == Tool::TranslateEvent ||
+                    type == Tool::RotateEvent ||
+                    type == Tool::ScaleEvent)
+                {
+                    delete static_cast<Tool::EventData*>(event.data);
+                    eventCount++;
+                }
 
                 else {
                     Warning() << "Unknown event type" << event.type << "memory has leaked!";
@@ -423,7 +419,7 @@ void Application::clear() {
 
     reset();
 
-    if (deletedCount) Debug() << "Deleted" << deletedCount << "events";
+    if (eventCount) Debug() << "Deleted" << eventCount << "events &" << channelCount << "channels";
 }
 
 
@@ -484,7 +480,7 @@ void Application::drawTransport() {
     ImGui::Begin("Transport", nullptr);
     {
         if (ImGui::Button("Play")) this->play(); ImGui::SameLine();
-        if (ImGui::Button("Record")) _recording ^= true; ImGui::SameLine();
+        if (ImGui::Button("Record")) Registry.ctx<ApplicationState>().recording ^= true; ImGui::SameLine();
         if (ImGui::Button("<")) this->step(-1); ImGui::SameLine();
         if (ImGui::Button(">")) this->step(1); ImGui::SameLine();
         if (ImGui::Button("Stop")) this->stop(); ImGui::SameLine();
@@ -516,15 +512,13 @@ void Application::drawTransport() {
 }
 
 
-void Application::setCurrentTool(ToolType type) {
+void Application::setCurrentTool(Tool::Type type) {
+	currentTool()->teardown();
+
     _previousToolType = _currentToolType;
     _currentToolType = type;
 
-    if (type == ToolType::Select)    _toolContext = std::make_unique<SelectContext>();
-    if (type == ToolType::Scrub)     _toolContext = std::make_unique<ScrubContext>();
-    if (type == ToolType::Translate) _toolContext = std::make_unique<TranslateContext>();
-    if (type == ToolType::Rotate)    _toolContext = std::make_unique<RotateContext>();
-    if (type == ToolType::Scale)     _toolContext = std::make_unique<ScaleContext>();
+    currentTool()->setup();
 }
 
 
@@ -548,28 +542,30 @@ void Application::drawScene() {
             }
         }
 
-        if (Widgets::Button("Select (Q)", _currentToolType == ToolType::Select)) {
-            _sceneContext.currentTool = ToolType::Select;
-            setCurrentTool(ToolType::Select);
+        if (Widgets::Button("Select (Q)", _currentToolType == Tool::Type::Select)) {
+            _sceneContext.currentTool = Tool::Type::Select;
+            setCurrentTool(Tool::Type::Select);
         }
 
-        if (Widgets::Button("Translate (W)", _currentToolType == ToolType::Translate)) {
-            _sceneContext.currentTool = ToolType::Translate;
-            setCurrentTool(ToolType::Translate);
+        if (Widgets::Button("Translate (W)", _currentToolType == Tool::Type::Translate)) {
+            _sceneContext.currentTool = Tool::Type::Translate;
+            setCurrentTool(Tool::Type::Translate);
         }
 
-        if (Widgets::Button("Rotate (E)", _currentToolType == ToolType::Rotate)) {
-            _sceneContext.currentTool = ToolType::Rotate;
-            setCurrentTool(ToolType::Rotate);
+        if (Widgets::Button("Rotate (E)", _currentToolType == Tool::Type::Rotate)) {
+            _sceneContext.currentTool = Tool::Type::Rotate;
+            setCurrentTool(Tool::Type::Rotate);
         }
 
-        if (Widgets::Button("Scale (R)", _currentToolType == ToolType::Scale)) {
-            _sceneContext.currentTool = ToolType::Scale;
-            setCurrentTool(ToolType::Scale);
+        if (Widgets::Button("Scale (R)", _currentToolType == Tool::Type::Scale)) {
+            _sceneContext.currentTool = Tool::Type::Scale;
+            setCurrentTool(Tool::Type::Scale);
         }
 
-        if (Widgets::Button("Scrub (K)", _currentToolType == ToolType::Scrub)) {}
-        if (Widgets::RecordButton("Record (T)", _recording)) _recording ^= true;
+        if (Widgets::Button("Scrub (K)", _currentToolType == Tool::Type::Scrub)) {}
+        if (Widgets::RecordButton("Record (T)", Registry.ctx<ApplicationState>().recording)) {
+            Registry.ctx<ApplicationState>().recording ^= true;
+        }
 
         auto dpos = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
         auto rpos = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
@@ -590,7 +586,7 @@ void Application::drawScene() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = sqty.current_time + (_playing ? 1 : 0);
+            auto time = sqty.current_time + (Registry.ctx<ApplicationState>().playing ? 1 : 0);
             bool selected = Registry.has<Selected>(entity);
             Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
@@ -605,21 +601,47 @@ void Application::drawScene() {
             }
         });
 
-        Registry.view<Position, Sequentity::Track, Color>().each([&](const auto& position,
-                                                                     const auto& track,
-                                                                     const auto& color) {
-            Sequentity::Intersect(track, sqty.current_time, [&](auto& event) {
-                if (event.type == TranslateEvent) {
-                    auto data = static_cast<ToolEventData*>(event.data);
-                    auto input = data->input[data->start];
-                    Position pos = position + (input.absolute - data->origin);
-                    auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
-                    Widgets::Cursor(impos, color);
-                }
-            });
+        Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
+            if (event.type == Tool::TranslateEvent) {
+                auto& [position, color] = Registry.get<Position, Color>(entity);
+                auto data = static_cast<Tool::EventData*>(event.data);
+                auto input = data->input[data->start];
+                Position pos = position + (input.absolute - data->origin);
+                auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                Widgets::Cursor(impos, color);
+            }
         });
     }
 
+    ImGui::End();
+}
+
+
+
+void Application::drawTool() {
+    auto& sqty = Registry.ctx<Sequentity::State>();
+    static bool windowEntered { false };
+
+    ImGui::Begin("Instrument Settings", nullptr);
+    {
+        ImGui::Text(currentTool()->name());
+
+        entt::entity subject = currentTool()->subject();
+        if (Registry.valid(subject)) {
+            ImGui::Text(Registry.get<Name>(subject).text);
+        } else {
+            ImGui::Text("None");
+        }
+
+        ImGui::Text(Tool::tooltype_to_char(currentTool()->type()));
+        ImGui::Text(Tool::eventtype_to_char(currentTool()->eventType()));
+
+        auto& color = currentTool()->color();
+        ImGui::ColorEdit4("Color", &color.x);
+
+        auto& input = currentTool()->input();
+        ImGui::DragInt2("Input", &input.relative.x);
+    }
     ImGui::End();
 }
 
@@ -706,8 +728,8 @@ void Application::drawEvent() {
     _imgui.newFrame();
 
     // Erase all current inputs
-    Registry.reset<InputPosition2D>();
-    Registry.reset<InputPosition3D>();
+    Registry.reset<Tool::InputPosition2D>();
+    Registry.reset<Tool::InputPosition3D>();
 
     // Restore order to this world
     Registry.reset<Hovered>();
@@ -720,19 +742,20 @@ void Application::drawEvent() {
     drawCentralWidget();
     drawTransport();
     drawScene();
+    drawTool();
 
     pollGamepad();
 
     auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
-    if (_playing) step(1);
+    if (Registry.ctx<ApplicationState>().playing) step(1);
 
     // current_time is *mutable* and can change from anywhere
     // Thus, we compare it against the previous time to
     // determine whether or not it has changed.
-    if (sqty.current_time != _previousTime) {
+    if (sqty.current_time != Registry.ctx<ApplicationState>().previousTime) {
         onTimeChanged();
-        _previousTime = sqty.current_time;
+        Registry.ctx<ApplicationState>().previousTime = sqty.current_time;
     }
 
     drawEventEditor();
@@ -765,7 +788,7 @@ void Application::drawEvent() {
 
     swapBuffers();
 
-    if (_running) {
+    if (Registry.ctx<ApplicationState>().running) {
         redraw();
     }
 }
@@ -782,18 +805,18 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Esc)          this->exit();
     if (event.key() == KeyEvent::Key::Enter)        redraw();
     if (event.key() == KeyEvent::Key::Delete)       clear();
-    if (event.key() == KeyEvent::Key::Backspace)    { _running ^= true; if (_running) redraw(); }
+    if (event.key() == KeyEvent::Key::Backspace)    { Registry.ctx<ApplicationState>().running ^= true; if (Registry.ctx<ApplicationState>().running) redraw(); }
     if (event.key() == KeyEvent::Key::Space)        { this->play(); }
     if (event.key() == KeyEvent::Key::F1)           _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;
 
-    if (event.key() == KeyEvent::Key::K && !event.isRepeated()) setCurrentTool(ToolType::Scrub);
-    if (event.key() == KeyEvent::Key::Q)                        setCurrentTool(ToolType::Select);
-    if (event.key() == KeyEvent::Key::W)                        setCurrentTool(ToolType::Translate);
-    if (event.key() == KeyEvent::Key::E)                        setCurrentTool(ToolType::Rotate);
-    if (event.key() == KeyEvent::Key::R)                        setCurrentTool(ToolType::Scale);
-    if (event.key() == KeyEvent::Key::T)                        _recording ^= true;
+    if (event.key() == KeyEvent::Key::K && !event.isRepeated()) setCurrentTool(Tool::Type::Scrub);
+    if (event.key() == KeyEvent::Key::Q)                        setCurrentTool(Tool::Type::Select);
+    if (event.key() == KeyEvent::Key::W)                        setCurrentTool(Tool::Type::Translate);
+    if (event.key() == KeyEvent::Key::E)                        setCurrentTool(Tool::Type::Rotate);
+    if (event.key() == KeyEvent::Key::R)                        setCurrentTool(Tool::Type::Scale);
+    if (event.key() == KeyEvent::Key::T)                        Registry.ctx<ApplicationState>().recording ^= true;
 
     if(_imgui.handleKeyPressEvent(event)) return;
 }
@@ -810,20 +833,24 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 void Application::mousePressEvent(MouseEvent& event) {
     auto& sqty = Registry.ctx<Sequentity::State>();
 
+    entt::entity hovered { entt::null };
     Registry.view<Hovered>().each([&](auto entity, const auto) {
-        auto absolute = event.position() / dpiScaling();
-
-        InputPosition2D input;
-        input.absolute = { absolute.x(), absolute.y() };
-
-        _toolContext->begin(entity, input);
-
-        if (_recording) {
-            record_tool(*_toolContext.get(), sqty.current_time);
-        }
+        hovered = entity;
     });
 
-    _mousePressPosition = event.position();
+    auto absolute = event.position() / dpiScaling();
+
+    Tool::InputPosition2D input;
+    input.absolute = { absolute.x(), absolute.y() };
+
+    bool can_record = currentTool()->begin(hovered, input) && currentTool()->canRecord();
+
+    if (can_record && Registry.ctx<ApplicationState>().recording) {
+        Debug() << "Starting to record..";
+        _recorder.begin(*currentTool().get(), sqty.current_time);
+    }
+
+    Registry.ctx<ApplicationState>().mousePressPosition = event.position();
     if (_imgui.handleMousePressEvent(event)) return;
 }
 
@@ -831,21 +858,24 @@ void Application::mousePressEvent(MouseEvent& event) {
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
     auto delta = event.relativePosition() / dpiScaling();
     auto absolute = event.position() / dpiScaling();
-    auto relative = (event.position() - _mousePressPosition) / dpiScaling();
+    auto relative = (event.position() - Registry.ctx<ApplicationState>().mousePressPosition) / dpiScaling();
 
-    InputPosition2D input;
+    Tool::InputPosition2D input;
     input.absolute = { absolute.x(), absolute.y() };
     input.relative = { relative.x(), relative.y() };
     input.delta = { delta.x(), delta.y() };
 
-    if (_toolContext->update(input) && _recording) {
+    bool can_record = currentTool()->update(input) && currentTool()->canRecord();
+
+    if (can_record && Registry.ctx<ApplicationState>().recording) {
         auto& sqty = Registry.ctx<Sequentity::State>();
 
         if (sqty.current_time > sqty.range[1] - 1) {
-            _toolContext->abort();
+            currentTool()->abort();
         }
         else {
-            record_tool(*_toolContext.get(), sqty.current_time);
+            Debug() << "Updating recording..";
+            _recorder.update(*currentTool().get(), sqty.current_time);
         }
     }
 
@@ -853,7 +883,12 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
 }
 
 void Application::mouseReleaseEvent(MouseEvent& event) {
-    _toolContext->finish();
+    bool can_record = currentTool()->finish() && currentTool()->canRecord();
+
+    if (can_record && Registry.ctx<ApplicationState>().recording) {
+        auto& sqty = Registry.ctx<Sequentity::State>();
+        _recorder.finish(*currentTool().get());
+    }
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }

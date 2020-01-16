@@ -91,6 +91,10 @@ struct Channel {
 
     ImVec4 color { ImColor::HSV(0.33f, 0.5f, 1.0f) };
 
+    // Map your custom data here, along with an optional type
+    EventType type { EventType_Move }; // schema
+    void* data { nullptr };            // payload
+
     std::vector<Event> events;
 };
 
@@ -127,6 +131,9 @@ struct Selected {};
  * @brief Lambda signatures
  *
  */
+using EntityIntersectFunc = std::function<void(entt::entity, const Event&)>;
+using EntityIntersectWithChannelFunc = std::function<void(entt::entity, const Channel&, const Event&)>;
+
 using IntersectFunc = std::function<void(const Event&)>;
 using IntersectWithPreviousFunc = std::function<void(const Event*, const Event&)>;
 using IntersectWithPreviousAndNextFunc = std::function<void(const Event&, const Event&, const Event&)>;
@@ -164,7 +171,7 @@ struct State {
  * @brief Main call
  *
  */
-void EventEditor(entt::registry& registry, bool* p_open);
+void EventEditor(entt::registry& registry);
 
 
 /**
@@ -201,6 +208,8 @@ void DataEditor(entt::registry& registry, bool* p_open = nullptr);
  *
  *
  */
+void Intersect(entt::registry& registry, TimeType time, EntityIntersectFunc func);
+void Intersect(entt::registry& registry, TimeType time, EntityIntersectWithChannelFunc func);
 void Intersect(const Track& track, TimeType time, IntersectFunc func);
 void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func);
 
@@ -417,6 +426,38 @@ inline void _sort_channel(Channel& channel) {
 }
 
 
+void Intersect(entt::registry& registry, TimeType time, EntityIntersectFunc func) {
+    registry.view<Track>().each([&](auto entity, auto& track) {
+        for (auto& [type, channel] : track.channels) {
+            if (track.mute) continue;
+            if (track._notsoloed) continue;
+
+            for (auto& event : channel.events) {
+                if (event.removed) continue;
+                if (!event.enabled) continue;
+                if (_contains(event, time)) func(entity, event);
+            }
+        }
+    });
+}
+
+
+void Intersect(entt::registry& registry, TimeType time, EntityIntersectWithChannelFunc func) {
+    registry.view<Track>().each([&](auto entity, auto& track) {
+        for (auto& [type, channel] : track.channels) {
+            if (track.mute) continue;
+            if (track._notsoloed) continue;
+
+            for (auto& event : channel.events) {
+                if (event.removed) continue;
+                if (!event.enabled) continue;
+                if (_contains(event, time)) func(entity, channel, event);
+            }
+        }
+    });
+}
+
+
 void Intersect(const Track& track, TimeType time, IntersectFunc func) {
     for (auto& [type, channel] : track.channels) {
         if (track.mute) continue;
@@ -429,6 +470,8 @@ void Intersect(const Track& track, TimeType time, IntersectFunc func) {
         }
     }
 }
+
+
 
 void Intersect(const Track& track, TimeType time, IntersectWithPreviousFunc func) {
     for (auto& [type, channel] : track.channels) {

@@ -14,7 +14,9 @@ which users interact with your data.
 
 struct Tooltip { const char* text; };
 
-enum class ToolType : std::uint8_t {
+namespace Tool {
+
+enum class Type : std::uint8_t {
     Select,
     DragSelect,
     LassoSelect,
@@ -24,6 +26,15 @@ enum class ToolType : std::uint8_t {
     Scale,
 
     Scrub,
+};
+
+enum class Device : std::uint8_t {
+    Mouse,
+    Keyboard,
+    Gamepad,
+    Touch,
+    WacomPen,
+    WacomTouch,
 };
 
 // From e.g. Wacom tablet
@@ -55,25 +66,8 @@ enum class InputDirection3D : std::uint8_t { Left = 0, Up, Right, Down, Forward,
  * application data, carried by events via a void*
  *
  */
-struct TranslateEventData {
-    Position offset;
-    std::vector<Position> positions;
-};
-
-struct RotateEventData {
-    std::vector<int> orientations;
-};
-
-struct ScaleEventData {
-    std::vector<int> scales;
-};
-
-struct ScrubEventData {
-    std::vector<int> deltas;
-};
-
-struct ToolEventData {
-    ToolType type;
+struct EventData {
+    Type type;
     
     // Keep track of where input starts in out input map
     int start { 0 };
@@ -105,7 +99,8 @@ enum EventType : Sequentity::EventType {
     ToolEvent,
 };
 
-enum ToolState : std::uint8_t {
+
+enum State : std::uint8_t {
     ToolState_None = 0,
     ToolState_Activated,
     ToolState_Active,
@@ -113,64 +108,112 @@ enum ToolState : std::uint8_t {
 };
 
 
-struct ToolContext {
-    virtual inline ToolType type() const = 0;
-    virtual inline EventType eventType() const = 0;
-    virtual inline const char* name() const = 0;
-    virtual inline ImVec4 color() const { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+static const char* tooltype_to_char(Type type) {
+    return type == Type::Select ? "Type::Select" :
+           type == Type::Translate ? "Type::Translate" :
+           type == Type::Rotate ? "Type::Rotate" :
+           type == Type::Scale ? "Type::Scale" :
+           type == Type::Scrub ? "Type::Scrub" :
+                                 "Type::Unknown";
+}
+
+
+static const char* eventtype_to_char(EventType type) {
+    return type == SelectEvent ? "SelectEvent" :
+           type == TranslateEvent ? "TranslateEvent" :
+           type == RotateEvent ? "RotateEvent" :
+           type == ScaleEvent ? "ScaleEvent" :
+           type == ScrubEvent ? "ScrubEvent" :
+                                "UnknownEvent";
+}
+
+
+struct Context {
+    virtual inline auto type() const -> Type = 0;
+    virtual inline auto eventType() const -> EventType = 0;
+    virtual inline auto name() const -> const char* = 0;
+    virtual inline auto copy() const -> Context* = 0;
+    virtual inline auto canRecord() const -> bool { return false; }
 
     virtual void setup() {}
-    virtual void begin(entt::entity entity, InputPosition2D input) {
-        _subject = entity;
-        _input = input;
-        _state = ToolState_Activated;
+    virtual void teardown();
 
-        Registry.reset<Selected>();
-        Registry.assign<Selected>(entity);
-    }
+    virtual auto begin(entt::entity subject, InputPosition2D input) -> bool;
+    virtual auto update(InputPosition2D input) -> bool { return false; }
+    virtual auto update(entt::entity subject, InputPosition2D input) -> bool;
+    virtual auto finish() -> bool;
 
-    virtual bool update(InputPosition2D) { return false; }
+    // Signals
+    virtual void abort();
 
-    bool update(entt::entity entity, InputPosition2D input) {
-        _subject = entity;
-        _state = ToolState_Activated;
-        return update(input);
-    }
-
-    virtual void preview() {}
-    virtual void finish() {
-        _subject = entt::null;
-        _state = ToolState_Deactivated;
-    }
-
-    virtual void teardown() {
-        // Handle case of user switching tool in the middle of updating
-        if (_state == ToolState_Active) finish();
-    }
-
-
-    void abort() {
-        _state = ToolState_None;
-        _subject = entt::null;
-    }
-
-    inline entt::entity subject() const { return _subject; }
-    inline InputPosition2D input() const { return _input; }
-    inline ToolState state() const { return _state; }
+    // Getters
+    virtual inline auto color() const -> ImVec4 { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+    inline auto subject() const -> entt::entity { return _subject; }
+    inline auto input() const -> InputPosition2D { return _input; }
+    inline auto state() const -> State { return _state; }
 
 protected:
-    ToolState _state { ToolState_None };
-
-    int _begin_time { 0 };
-    entt::entity _subject { entt::null };
+    entt::entity    _subject { entt::null };
     InputPosition2D _input { 0, 0 };
+    State           _state { ToolState_None };
 };
 
 
-void record_tool(const ToolContext& tool, int time) {
-    if (!tool.state()) return;
+using Ptr = std::unique_ptr<Context>;
+using Collection = std::unordered_map<int, Ptr>;
 
-    if (tool.state() == ToolState_Activated) {
+
+// Boilerplate
+auto Context::begin(entt::entity subject, InputPosition2D input) -> bool {
+    _subject = subject;
+    _input = input;
+    _state = ToolState_Activated;
+
+    Registry.reset<Selected>();
+
+    // Did the user click on an empty area?
+    if (Registry.valid(subject)) {
+        Registry.assign<Selected>(subject);
+        return true;
+    }
+
+    return false;
+}
+
+
+bool Context::update(entt::entity subject, InputPosition2D input) {
+    _subject = subject;
+    _input = input;
+    _state = ToolState_Activated;
+
+    return update(input);
+}
+
+
+auto Context::finish() -> bool {
+    bool can_record = Registry.valid(_subject);
+
+    _subject = entt::null;
+    _state = ToolState_Deactivated;
+
+    return can_record;
+}
+
+
+void Context::teardown() {
+    // Handle case of user switching tool in the middle of updating
+    if (_state == ToolState_Active) finish();
+}
+
+
+void Context::abort() {
+    _state = ToolState_None;
+    _subject = entt::null;
+}
+
+
+struct Recorder {
+    void begin(const Context& tool, int time) {
         auto [name, color] = Registry.get<Name, Color>(tool.subject());
 
         if (!Registry.has<Sequentity::Track>(tool.subject())) {
@@ -178,7 +221,7 @@ void record_tool(const ToolContext& tool, int time) {
         }
 
         auto origin = Registry.get<Position>(tool.subject());
-        auto* data = new ToolEventData{}; {
+        auto* data = new EventData{}; {
             data->start = time;
             data->input[time] = tool.input();
             data->type = tool.type();
@@ -192,6 +235,10 @@ void record_tool(const ToolContext& tool, int time) {
         if (is_new_channel) {
             channel.label = tool.name();
             channel.color = tool.color();
+            channel.type = tool.eventType();
+
+            Debug() << "Creating a new tool for this channel";
+            channel.data = static_cast<void*>(tool.copy());
         }
 
         Sequentity::PushEvent(channel, {
@@ -199,11 +246,11 @@ void record_tool(const ToolContext& tool, int time) {
             1,          /* length= */
             color,
             tool.eventType(),
-            static_cast<void*>(data)
+            static_cast<void*>(data),
         });
     }
 
-    else if (tool.state() == ToolState_Active) {
+    void update(const Context& tool, int time) {
         auto& track = Registry.get<Sequentity::Track>(tool.subject());
         
         if (!track.channels.count(tool.eventType())) {
@@ -214,17 +261,17 @@ void record_tool(const ToolContext& tool, int time) {
         auto& channel = track.channels[tool.eventType()];
         auto& event = channel.events.back();
 
-        auto data = static_cast<ToolEventData*>(event.data);
+        auto data = static_cast<EventData*>(event.data);
 
         // Update existing data
         data->input[time] = tool.input();
         event.length = time - event.time + 1;
     }
 
-    else if (tool.state() == ToolState_Deactivated) {
-        Debug() << "..end";
+    void finish(const Context& tool) {
+
     }
-}
+};
 
 
 
@@ -233,18 +280,44 @@ void record_tool(const ToolContext& tool, int time) {
  *
  *
  */
-struct SelectContext : public ToolContext {
-    inline ToolType type() const override  { return ToolType::Select; }
+struct SelectContext : public Context {
+    inline Type type() const override  { return Type::Select; }
     inline EventType eventType() const override  { return SelectEvent; }
     inline const char* name() const override  { return "Select"; }
     inline ImVec4 color() const override  { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+    inline Context* copy() const override { return new SelectContext{}; }
 };
 
 
-struct ScrubContext : public ToolContext {
-    inline ToolType type() const override  { return ToolType::Scrub; }
+struct ScrubContext : public Context {
+    inline Type type() const override  { return Type::Scrub; }
     inline EventType eventType() const override  { return ScrubEvent; }
     inline const char* name() const override  { return "Scrub"; }
+    inline Context* copy() const override { return new ScrubContext{}; }
+
+    void setup() override {
+        auto& state = Registry.ctx<ApplicationState>();
+        _was_playing = state.playing;
+        state.playing = false;
+
+        Context::setup();
+    }
+
+    bool update(InputPosition2D input) override {
+        if (_state == ToolState_Activated) {
+            Registry.ctx<Sequentity::State>().current_time += input.delta.x;
+        }
+
+        return false;
+    }
+
+    void teardown() {
+        auto& state = Registry.ctx<ApplicationState>();
+        state.playing = _was_playing;
+    }
+
+private:
+    bool _was_playing { false };
 };
 
 
@@ -260,18 +333,20 @@ struct ScrubContext : public ToolContext {
  *
  *
  */
-struct TranslateContext : public ToolContext {
-    inline ToolType type() const override  { return ToolType::Translate; }
+struct TranslateContext : public Context {
+    inline Type type() const override  { return Type::Translate; }
     inline EventType eventType() const override  { return TranslateEvent; }
     inline const char* name() const override  { return "Translate"; }
     inline ImVec4 color() const override { return ImColor::HSV(0.0f, 0.75f, 0.75f); }
+    inline Context* copy() const override { return new TranslateContext{}; }
+    virtual inline auto canRecord() const -> bool { return true; }
 
     void setup() {
         Debug() << "Setting Translate mouse cursor..";
         Debug() << "Setting Translate tool tips..";
     }
 
-    bool update(InputPosition2D input) {
+    bool update(InputPosition2D input) override {
         Registry.reset<Tooltip>();
 
         if (Registry.valid(_subject)) {
@@ -284,8 +359,8 @@ struct TranslateContext : public ToolContext {
                 intent.y += input.delta.y;
             }
 
-            _state = ToolState_Active;
             _input = input;
+            _state = ToolState_Active;
 
             return true;
         }
@@ -297,9 +372,8 @@ struct TranslateContext : public ToolContext {
             });
 
             _state = ToolState_None;
+            return false;
         }
-
-        return false;
     }
 };
 
@@ -316,13 +390,15 @@ struct TranslateContext : public ToolContext {
  *   \___
  *
  */
-struct RotateContext : public ToolContext {
-    inline ToolType type() const override  { return ToolType::Rotate; }
+struct RotateContext : public Context {
+    inline Type type() const override  { return Type::Rotate; }
     inline EventType eventType() const override  { return RotateEvent; }
     inline const char* name() const override  { return "Rotate"; }
     inline ImVec4 color() const override { return ImColor::HSV(0.33f, 0.75f, 0.75f); }
+    inline Context* copy() const override { return new RotateContext{}; }
+    virtual inline auto canRecord() const -> bool { return true; }
 
-    bool update(InputPosition2D input) {
+    bool update(InputPosition2D input) override {
         Registry.reset<Tooltip>();
 
         if (Registry.valid(_subject)) {
@@ -368,13 +444,15 @@ struct RotateContext : public ToolContext {
  *   /              \
  *
  */
-struct ScaleContext : public ToolContext {
-    inline ToolType type() const override  { return ToolType::Scale; }
+struct ScaleContext : public Context {
+    inline Type type() const override  { return Type::Scale; }
     inline EventType eventType() const override  { return ScaleEvent; }
     inline const char* name() const override  { return "Scale"; }
     inline ImVec4 color() const override { return ImColor::HSV(0.52f, 0.75f, 0.50f); }
+    inline Context* copy() const override { return new ScaleContext{}; }
+    virtual inline auto canRecord() const -> bool { return true; }
 
-    bool update(InputPosition2D input) {
+    bool update(InputPosition2D input) override {
         Registry.reset<Tooltip>();
 
         if (Registry.valid(_subject)) {
@@ -404,3 +482,5 @@ struct ScaleContext : public ToolContext {
         return false;
     }
 };
+
+}

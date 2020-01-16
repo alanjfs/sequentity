@@ -26,6 +26,7 @@ link_directories(
 
 
 set(SRC_FILES
+    Source/_sqty.cpp
     Source/main.cpp
 )
 
@@ -63,7 +64,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /MDd /Zi /EHsc)
 else()
     target_compile_definitions(${PROJECT_NAME} PRIVATE -DNDEBUG)
-    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /EHsc /wd4251 /MP /MD)
+    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /EHsc /Od /wd4251 /MP /MD)
 endif()
 
 # Magnum suffixes libraries for debug builds
@@ -74,11 +75,16 @@ else()
 endif()
 
 target_link_libraries(${PROJECT_NAME}
-    CorradeUtility
+    CorradePluginManager${MAGNUM_LIB_SUFFIX}
+    CorradeUtility${MAGNUM_LIB_SUFFIX}
     glfw3
     opengl32
-    Magnum
-    MagnumGL
-    MagnumGlfwApplication
-    MagnumImGuiIntegration
+    Magnum${MAGNUM_LIB_SUFFIX}
+    MagnumGL${MAGNUM_LIB_SUFFIX}
+    MagnumMeshTools${MAGNUM_LIB_SUFFIX}
+    MagnumPrimitives${MAGNUM_LIB_SUFFIX}
+    MagnumGlfwApplication${MAGNUM_LIB_SUFFIX}
+    MagnumShaders${MAGNUM_LIB_SUFFIX}
+    MagnumTrade${MAGNUM_LIB_SUFFIX}
+    MagnumImGuiIntegration${MAGNUM_LIB_SUFFIX}
 )
