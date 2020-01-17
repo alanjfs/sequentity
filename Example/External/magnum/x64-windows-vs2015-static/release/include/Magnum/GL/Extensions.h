@@ -63,14 +63,14 @@ but these structs are better suited for compile-time decisions rather than
 usage.
 
 This library is built if `WITH_GL` is enabled when building Magnum. To use this
-library with CMake, you need to request the `GL` component of the `Magnum`
-package and link to the `Magnum::GL` target:
+library with CMake, request the `GL` component of the `Magnum` package and link
+to the `Magnum::GL` target:
 
 @code{.cmake}
 find_package(Magnum REQUIRED GL)
 
 # ...
-target_link_libraries(your-app Magnum::GL)
+target_link_libraries(your-app PRIVATE Magnum::GL)
 @endcode
 
 See @ref building, @ref cmake and @ref opengl for more information.

@@ -62,10 +62,7 @@ namespace Implementation {
 
 Application using the [GLFW](http://glfw.org) toolkit. Supports keyboard and
 mouse handling with support for changing cursor and mouse tracking and warping.
-
-This application library is available on all platforms where GLFW is ported. It
-depends on the [GLFW](http://glfw.org) library and is built if
-`WITH_GLFWAPPLICATION` is enabled when building Magnum.
+Available on all platforms where GLFW is ported.
 
 @m_class{m-block m-success}
 
@@ -96,21 +93,32 @@ See @ref cmake for more information.
 
 @section Platform-GlfwApplication-usage General usage
 
-In order to use this library from CMake, you need to copy
+This application library depends on the [GLFW](http://glfw.org) library and is
+built if `WITH_GLFWAPPLICATION` is enabled when building Magnum. To use this
+library with CMake, put
 [FindGLFW.cmake](https://github.com/mosra/magnum/blob/master/modules/FindGLFW.cmake)
-from the `modules/` directory in Magnum sources to a `modules/` dir in your
-project and pointing `CMAKE_MODULE_PATH` to it (if not done already) so it is
-able to find the GLFW library. Then request the `GlfwApplication` component of
-the `Magnum` package and link to the `Magnum::GlfwApplication` target:
+into your `modules/` directory, request the `GlfwApplication` component of the
+`Magnum` package and link to the `Magnum::GlfwApplication` target:
 
 @code{.cmake}
-# Path where FindGLFW.cmake can be found, adapt as needed
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules/" ${CMAKE_MODULE_PATH})
-
 find_package(Magnum REQUIRED GlfwApplication)
 
 # ...
-target_link_libraries(your-app Magnum::GlfwApplication)
+target_link_libraries(your-app PRIVATE Magnum::GlfwApplication)
+@endcode
+
+Additionally, if you're using Magnum as a CMake subproject, bundle the
+[glfw repository](https://github.com/glfw/glfw) and do the following
+* *before* calling @cmake find_package() @ce to ensure it's enabled, as the
+library is not built by default. If you want to use system-installed GLFW, omit
+the first part and point `CMAKE_PREFIX_PATH` to its installation dir if
+necessary.
+
+@code{.cmake}
+add_subdirectory(glfw)
+
+set(WITH_GLFWAPPLICATION ON CACHE BOOL "" FORCE)
+add_subdirectory(magnum EXCLUDE_FROM_ALL)
 @endcode
 
 If no other application is requested, you can also use the generic
@@ -355,6 +363,18 @@ class GlfwApplication {
          */
         Vector2i windowSize() const;
 
+        /**
+         * @brief Set window size
+         * @param size    The size, in screen coordinates
+         * @m_since_latest
+         *
+         * To make the sizing work independently of the display DPI, @p size is
+         * internally multiplied with @ref dpiScaling() before getting applied.
+         * Expects that a window is already created.
+         * @see @ref setMinWindowSize(), @ref setMaxWindowSize()
+         */
+        void setWindowSize(const Vector2i& size);
+
         #if GLFW_VERSION_MAJOR*100 + GLFW_VERSION_MINOR >= 302 || defined(DOXYGEN_GENERATING_OUTPUT)
         /**
          * @brief Set window minimum size
@@ -364,8 +384,9 @@ class GlfwApplication {
          * If a value is set to @cpp -1 @ce, it will disable/remove the
          * corresponding limit. To make the sizing work independently of the
          * display DPI, @p size is internally multiplied with @ref dpiScaling()
-         * before getting applied.
+         * before getting applied. Expects that a window is already created.
          * @note Supported since GLFW 3.2.
+         * @see @ref setMaxWindowSize(), @ref setWindowSize()
          */
         void setMinWindowSize(const Vector2i& size = {-1, -1});
 
@@ -377,8 +398,9 @@ class GlfwApplication {
          * If a value is set to @cpp -1 @ce, it will disable/remove the
          * corresponding limit. To make the sizing work independently of the
          * display DPI, @p size is internally multiplied with @ref dpiScaling()
-         * before getting applied.
+         * before getting applied. Expects that a window is already created.
          * @note Supported since GLFW 3.2.
+         * @see @ref setMinWindowSize(), @ref setMaxWindowSize()
          */
         void setMaxWindowSize(const Vector2i& size = {-1, -1});
         #endif
@@ -539,8 +561,42 @@ class GlfwApplication {
             Arrow,          /**< Arrow */
             TextInput,      /**< Text input */
             Crosshair,      /**< Crosshair */
+
+            /* Checking for GLFW_RESIZE_NWSE_CURSOR being defined instead of a
+               version check because older Git clones have version set to 3.4
+               but don't contain those defines. All new cursors were added in
+               the same commit, so it's okay to test for just one define. */
+            #if defined(DOXYGEN_GENERATING_OUTPUT) || defined(GLFW_RESIZE_NWSE_CURSOR)
+            /**
+             * Double arrow pointing northwest and southeast
+             * @note Available since GLFW 3.4.
+             */
+            ResizeNWSE,
+
+            /**
+             * Double arrow pointing northeast and southwest
+             * @note Available since GLFW 3.4.
+             */
+            ResizeNESW,
+            #endif
+
             ResizeWE,       /**< Double arrow pointing west and east */
             ResizeNS,       /**< Double arrow pointing north and south */
+
+            #if defined(DOXYGEN_GENERATING_OUTPUT) || defined(GLFW_RESIZE_NWSE_CURSOR)
+            /**
+             * Four pointed arrow pointing north, south, east, and west
+             * @note Available since GLFW 3.4.
+             */
+            ResizeAll,
+
+            /**
+             * Slashed circle or crossbones
+             * @note Available since GLFW 3.4.
+             */
+            No,
+            #endif
+
             Hand,           /**< Hand */
             Hidden,         /**< Hidden */
             HiddenLocked    /**< Hidden and locked */
