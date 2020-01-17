@@ -1,17 +1,19 @@
 #include <map>
 
 
+namespace Input {
+
 // Hardware singletons
 struct MouseDevice {
     entt::entity assignedTool { entt::null };
     entt::entity lastPressed { entt::null };
     entt::entity lastHovered { entt::null };
 
-    int time { 0 };
-    int startTime { 0 };
-    int endTime { 0 };
+    TimeType time { 0 };
+    TimeType pressTime { 0 };
+    TimeType releaseTime { 0 };
 
-    std::map<int, Tool::InputPosition2D> positions;
+    Vector2i position { 0, 0 };
 
     bool pressed { false };
     bool released { false };
@@ -21,16 +23,15 @@ struct MouseDevice {
     const char* id { "mouse" };
 
     // Internal state
-    Position _position { 0, 0 };
-    Position _pressPosition { 0, 0 };
-    Position _lastPosition { 0, 0 };
-    Position _deltaPosition { 0, 0 };
+    std::map<TimeType, InputPosition2D> _positions;
+    Vector2i _pressPosition { 0, 0 };
+    Vector2i _lastPosition { 0, 0 };
+    Vector2i _deltaPosition { 0, 0 };
 };
 
 
 struct WacomDevice {
     entt::entity lastPressed { entt::null };
-    Tool::InputPosition2D data;
 
     const char* id { "wacom" };
 };
@@ -38,7 +39,6 @@ struct WacomDevice {
 
 struct GamepadDevice {
     entt::entity lastPressed { entt::null };
-    Tool::InputPosition2D data;
 
     const char* id { "gamepad" };
 };
@@ -48,14 +48,15 @@ static void copy_to_tool(MouseDevice device, entt::entity target, bool animation
     auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
         data.target = target;
         data.time = device.time;
-        data.startTime = device.startTime;
-        data.endTime = device.endTime;
 
         if (animation) {
-            data.positions = device.positions;
+            data.positions = device._positions;
+            data.startTime = device.pressTime;
+            data.endTime = device.releaseTime;
 
         } else {
-            data.positions[device.time] = device.positions[device.time];
+            auto position = device._positions.at(device.time);
+            data.positions[device.time] = (*device._positions.find(device.time)).second;
             data.startTime = data.time;
             data.endTime = data.time;
         }
@@ -68,7 +69,7 @@ static void MouseInputSystem() {
         auto& app = Registry.ctx<ApplicationState>();
         auto entity = device.lastPressed;
 
-        device._pressPosition = device._position;
+        device._pressPosition = device.position;
 
         if (Registry.valid(entity)) {
             assert(!Registry.has<Tool::BeginIntent>(device.assignedTool));
@@ -109,18 +110,31 @@ static void MouseInputSystem() {
         if (app.recording) {
             Registry.assign_or_replace<Tool::RecordIntent>(device.assignedTool);
         }
-    };
 
+        device._positions.clear();
+    };
 
     // Mappings
     Registry.view<MouseDevice>().each([&](auto& device) {
 
+        // NOTE: We can't trust the application to provide delta
+        // _positions, since inputs come in faster than we can update
+        // our application. If two or more events preceed an application
+        // update, then the delta will be incorrect.
+        //
+        // Instead, we only let the application store absolute _positions, 
+        // and compute deltas relative where we actually processed those
+        // inputs last time.
+
+        device._positions[device.time] = {
+            device.position,
+            device.position - device._pressPosition,
+            device.position - device._lastPosition
+        };
+
         // TODO: This should never really happen.
         //       Find out when it does and why
         if (!Registry.valid(device.assignedTool)) return;
-
-        // Update internal data
-        device._position = device.positions[device.time].absolute;
 
         if (device.pressed) {
             press(device);
@@ -154,12 +168,14 @@ static void MouseInputSystem() {
         device.changed = false;
 
         // In order to compute the delta between runs
-        device._deltaPosition = device._position - device._lastPosition;
-        device._lastPosition = device._position;
+        device._deltaPosition = device.position - device._lastPosition;
+        device._lastPosition = device.position;
     });
 }
 
 
-static void InputSystem() {
+static void System() {
     MouseInputSystem();
+}
+
 }

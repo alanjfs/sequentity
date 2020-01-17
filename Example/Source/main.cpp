@@ -221,8 +221,8 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     _devices["wacomTouch1"] = Registry.create();
     _devices["wacomTouch2"] = Registry.create();
 
-    Registry.assign<MouseDevice>(_devices["mouse0"]);
-    Registry.assign<MouseDevice>(_devices["mouse1"]);
+    Registry.assign<Input::MouseDevice>(_devices["mouse0"]);
+    Registry.assign<Input::MouseDevice>(_devices["mouse1"]);
 
     setCurrentTool(Tool::Type::Translate);
 
@@ -383,7 +383,7 @@ void Application::reset() {
         size = initial;
     });
 
-    Registry.view<MouseDevice>().each([](auto& device) {
+    Registry.view<Input::MouseDevice>().each([](auto& device) {
         device.dragging = false;
     });
 }
@@ -513,11 +513,11 @@ void Application::setCurrentTool(Tool::Type type) {
     _previousToolType = _currentToolType;
     _currentToolType = type;
 
-    Registry.view<MouseDevice>().each([](auto& device) {
+    Registry.view<Input::MouseDevice>().each([](auto& device) {
         device.dragging = false;
     });
 
-    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
     auto& tool = device.assignedTool;
 
     if (Registry.valid(tool)) {
@@ -670,7 +670,6 @@ void Application::drawScene() {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
                 auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
                 auto& data = Registry.get<Tool::Data>(event.payload);
-                auto input = data.positions[data.startTime];
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
             }
@@ -684,7 +683,9 @@ void Application::drawScene() {
 
             ImVec2 tip { 0, 0 };
             for (const auto& [time, position] : data.positions) {
-                tip = ImVec2(Vector2(Vector2i(position.absolute.x, position.absolute.y)) / this->dpiScaling());
+                if (time < data.startTime || time > data.endTime) continue;
+
+                tip = ImVec2(Vector2(position.absolute) / this->dpiScaling());
                 drawlist->PathLineTo(tip);
             }
 
@@ -809,13 +810,14 @@ void Application::pollGamepad() {
 void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
     auto& app = Registry.ctx<ApplicationState>();
 
     _imgui.newFrame();
 
     // Erase all current inputs
-    Registry.reset<Tool::InputPosition2D>();
-    Registry.reset<Tool::InputPosition3D>();
+    // Registry.reset<Input::Position2D>();
+    // Registry.reset<Input::Position3D>();
 
     // Restore order to this world
     Registry.reset<Hovered>();
@@ -823,10 +825,7 @@ void Application::drawEvent() {
          if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
-    InputSystem();
-    pollGamepad();
-
-    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
+    Input::System();
 
     if (app.playing) step(1);
 
@@ -917,7 +916,6 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 
 
 void Application::mousePressEvent(MouseEvent& event) {
-    auto& sqty = Registry.ctx<Sequentity::State>();
     auto& app = Registry.ctx<ApplicationState>();
 
     entt::entity entity { entt::null };
@@ -926,21 +924,15 @@ void Application::mousePressEvent(MouseEvent& event) {
         break;
     };
 
-    auto absolute = event.position();
-
-    Tool::InputPosition2D input;
-    input.absolute = { absolute.x(), absolute.y() };
-
-    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
     device.pressed = true;
     device.lastPressed = entity;
     device.lastHovered = entity;
 
     device.time = app.time;
-    device.startTime = app.time;
-    device.endTime = app.time;
-    device.positions.clear();
-    device.positions[app.time] = input;
+    device.pressTime = app.time;
+    device.releaseTime = app.time;
+    device.position = event.position();
 
     Registry.ctx<ApplicationState>().mousePressPosition = event.position();
 
@@ -951,34 +943,25 @@ void Application::mousePressEvent(MouseEvent& event) {
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
     auto& app = Registry.ctx<ApplicationState>();
 
-    auto delta = event.relativePosition();
-    auto absolute = event.position();
-    auto relative = (event.position() - Registry.ctx<ApplicationState>().mousePressPosition);
-
-    Tool::InputPosition2D input;
-    input.absolute = { absolute.x(), absolute.y() };
-    input.relative = { relative.x(), relative.y() };
-    input.delta = { delta.x(), delta.y() };
-
     entt::entity entity { entt::null };
     for (auto hovered : Registry.view<Hovered>()) {
         entity = hovered;
         break;
     };
 
-    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
     device.lastHovered = entity;
     device.changed = true;
 
     device.time = app.time;
-    device.endTime = app.time;
-    device.positions[app.time] = input;
+    device.releaseTime = app.time;
+    device.position = event.position();
 
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 
 void Application::mouseReleaseEvent(MouseEvent& event) {
-    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
 
     device.released = true;
 
