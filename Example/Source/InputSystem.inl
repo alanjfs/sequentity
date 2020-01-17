@@ -1,104 +1,110 @@
+#include <map>
+
 
 // Hardware singletons
-static struct MouseDevice_ {
-    const char* id { "mouse" };
-
+struct MouseDevice {
     entt::entity assignedTool { entt::null };
-
-    Position position { 0, 0 };
-    Position pressPosition { 0, 0 };
-    Position lastPosition { 0, 0 };
-    Position deltaPosition { 0, 0 };
-
-    bool pressed { false };
-    bool dragging { false };
-    bool released { false };
-    bool changed { false };
-
     entt::entity lastPressed { entt::null };
     entt::entity lastHovered { entt::null };
 
+    int time { 0 };
+    int startTime { 0 };
+    int endTime { 0 };
+
+    std::map<int, Tool::InputPosition2D> positions;
+
+    bool pressed { false };
+    bool released { false };
+    bool dragging { false };
+    bool changed { false };
+
+    const char* id { "mouse" };
+
+    // Internal state
+    Position _position { 0, 0 };
+    Position _pressPosition { 0, 0 };
+    Position _lastPosition { 0, 0 };
+    Position _deltaPosition { 0, 0 };
+};
+
+
+struct WacomDevice {
+    entt::entity lastPressed { entt::null };
     Tool::InputPosition2D data;
-} MouseDevice[1];
 
-
-static struct WacomDevice_ {
     const char* id { "wacom" };
+};
+
+
+struct GamepadDevice {
     entt::entity lastPressed { entt::null };
     Tool::InputPosition2D data;
-} WacomDevice;
 
-
-static struct GamepadDevice_ {
     const char* id { "gamepad" };
-    entt::entity lastPressed { entt::null };
-    Tool::InputPosition2D data;
-} GamepadDevice;
+};
+
+
+static void copy_to_tool(MouseDevice device, entt::entity target, bool animation = true) {
+    auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
+        data.target = target;
+        data.time = device.time;
+        data.startTime = device.startTime;
+        data.endTime = device.endTime;
+
+        if (animation) {
+            data.positions = device.positions;
+
+        } else {
+            data.positions[device.time] = device.positions[device.time];
+            data.startTime = data.time;
+            data.endTime = data.time;
+        }
+    }
+}
 
 
 static void MouseInputSystem() {
-    auto press = [](MouseDevice_& device) {
+    auto press = [](MouseDevice& device) {
         auto& app = Registry.ctx<ApplicationState>();
         auto entity = device.lastPressed;
 
-        device.pressPosition = device.position;
+        device._pressPosition = device._position;
 
         if (Registry.valid(entity)) {
             assert(!Registry.has<Tool::BeginIntent>(device.assignedTool));
             Registry.assign<Tool::BeginIntent>(device.assignedTool);
-
-            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
-                data.target = entity;
-                data.time = app.time;
-                data.startTime = app.time;
-                data.endTime = app.time;
-                data.inputs[app.time] = device.data;
-            }
+            copy_to_tool(device, device.lastPressed);
         }
     };
 
-    auto drag_entity = [](MouseDevice_& device) {
+    auto drag_entity = [](MouseDevice& device) {
         auto& app = Registry.ctx<ApplicationState>();
         auto entity = device.lastPressed;
 
         // May be updated by events (that we would override)
         Registry.assign<Tool::UpdateIntent>(device.assignedTool, app.time);
-
-        // Update data
-        auto& data = Registry.get<Tool::Data>(device.assignedTool); {
-            data.time = app.time;
-            data.endTime = app.time;
-            data.inputs[app.time] = device.data;
-        }
+        copy_to_tool(device, device.lastPressed);
     };
 
-    auto drag_nothing = [](MouseDevice_& device) {
+    auto drag_nothing = [](MouseDevice& device) {
         // E.g. a selection rectangle
     };
 
-    auto hover = [](MouseDevice_& device) {
+    auto hover = [](MouseDevice& device) {
         Registry.reset<Tooltip>();
         Registry.reset<Tool::Data>(device.assignedTool);
 
         auto entity = device.lastHovered;
 
         if (Registry.valid(entity)) {
-            Registry.assign_or_replace<Tool::PreviewIntent>(device.assignedTool);
-
             auto& app = Registry.ctx<ApplicationState>();
-            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
-                data.target = entity;
-                data.time = app.time;
-                data.startTime = app.time;
-                data.endTime = app.time;
-                data.inputs[app.time] = device.data;
-            }
+            Registry.assign_or_replace<Tool::PreviewIntent>(device.assignedTool);
+            copy_to_tool(device, device.lastHovered, false);
         }
     };
 
-    auto release = [](MouseDevice_& device) {
+    auto release = [](MouseDevice& device) {
         auto& app = Registry.ctx<ApplicationState>();
-        auto entity = device.lastPressed;
 
         if (app.recording) {
             Registry.assign_or_replace<Tool::RecordIntent>(device.assignedTool);
@@ -107,7 +113,15 @@ static void MouseInputSystem() {
 
 
     // Mappings
-    for (auto& device : MouseDevice) {
+    Registry.view<MouseDevice>().each([&](auto& device) {
+
+        // TODO: This should never really happen.
+        //       Find out when it does and why
+        if (!Registry.valid(device.assignedTool)) return;
+
+        // Update internal data
+        device._position = device.positions[device.time].absolute;
+
         if (device.pressed) {
             press(device);
             device.pressed = false;
@@ -140,9 +154,9 @@ static void MouseInputSystem() {
         device.changed = false;
 
         // In order to compute the delta between runs
-        device.deltaPosition = device.position - device.lastPosition;
-        device.lastPosition = device.position;
-    }
+        device._deltaPosition = device._position - device._lastPosition;
+        device._lastPosition = device._position;
+    });
 }
 
 

@@ -130,7 +130,7 @@ struct Data {
     int startTime;
     int endTime;
 
-    std::map<int, InputPosition2D> inputs;
+    std::map<int, InputPosition2D> positions;
 };
 
 struct Meta {
@@ -197,7 +197,7 @@ void TranslateSystem() {
     };
 
     auto update = [](const auto& data, const auto& intent) {
-        const auto& input = data.inputs.at(intent.time);
+        const auto& input = data.positions.at(intent.time);
 
         if (!Registry.has<MoveIntent>(data.target)) {
             Registry.assign<MoveIntent>(data.target, input.delta.x, input.delta.y);
@@ -247,7 +247,7 @@ void RotateSystem() {
     };
 
     auto update = [](const auto& data, const auto& intent) {
-        const auto& input = data.inputs.at(intent.time);
+        const auto& input = data.positions.at(intent.time);
 
         if (!Registry.has<RotateIntent>(data.target)) {
             Registry.assign<RotateIntent>(data.target, input.delta.x);
@@ -296,7 +296,7 @@ void ScaleSystem() {
     };
 
     auto update = [](const auto& data, const auto& intent) {
-        const auto& input = data.inputs.at(intent.time);
+        const auto& input = data.positions.at(intent.time);
 
         if (!Registry.has<ScaleIntent>(data.target)) {
             Registry.assign<ScaleIntent>(data.target, input.delta.x);
@@ -363,7 +363,7 @@ void RecordSystem() {
             tool_copy
         });
     });
-}
+	 }
 
 
 void System() {

@@ -49,8 +49,9 @@ struct ApplicationState {
 #include "Theme.inl"
 #include "Components.inl"
 #include "Widgets.inl"
+
 #include "IntentSystem.inl"
-#include "Tools.inl"
+#include "ToolSystem.inl"
 #include "InputSystem.inl"
 
 
@@ -104,6 +105,8 @@ private:
 
     Tool::Type _currentToolType { Tool::Type::Translate };
     Tool::Type _previousToolType { Tool::Type::Translate };
+
+    std::unordered_map<std::string_view, entt::entity> _devices;
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -193,6 +196,8 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     this->setSwapInterval(1);  // VSync
 
+    Registry.create();  // Bad bad
+
     // Synchronise Sequentity with our internal application selection
     Registry.on_construct<Selected>().connect<on_select_constructed>();
     Registry.on_destroy<Selected>().connect<on_select_destroyed>();
@@ -208,6 +213,16 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     // Initialise state
     Registry.set<Sequentity::State>();
     Registry.set<ApplicationState>();
+
+    // Hardware singletons
+    _devices["mouse0"] = Registry.create();
+    _devices["mouse1"] = Registry.create();
+    _devices["wacomTouch0"] = Registry.create();
+    _devices["wacomTouch1"] = Registry.create();
+    _devices["wacomTouch2"] = Registry.create();
+
+    Registry.assign<MouseDevice>(_devices["mouse0"]);
+    Registry.assign<MouseDevice>(_devices["mouse1"]);
 
     setCurrentTool(Tool::Type::Translate);
 
@@ -340,7 +355,7 @@ void Application::onTimeChanged() {
             auto& data = Registry.get<Tool::Data>(tool);
             const auto local_time = current_time + (data.startTime - event.time);
 
-            if (data.inputs.count(local_time)) {
+            if (data.positions.count(local_time)) {
                 Registry.assign<Tool::UpdateIntent>(tool, local_time);
             }
         });
@@ -368,8 +383,9 @@ void Application::reset() {
         size = initial;
     });
 
-    // TODO: Take abortion into account, for all active devices
-    MouseDevice[0].dragging = false;
+    Registry.view<MouseDevice>().each([](auto& device) {
+        device.dragging = false;
+    });
 }
 
 
@@ -497,11 +513,15 @@ void Application::setCurrentTool(Tool::Type type) {
     _previousToolType = _currentToolType;
     _currentToolType = type;
 
-    MouseDevice[0].dragging = false;
-    auto& tool = MouseDevice[0].assignedTool;
+    Registry.view<MouseDevice>().each([](auto& device) {
+        device.dragging = false;
+    });
+
+    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    auto& tool = device.assignedTool;
 
     if (Registry.valid(tool)) {
-        Registry.assign<Tool::SelfDestructIntent>(tool);
+        Registry.destroy(tool);
     }
 
     Debug() << "Assigning a new tool..";
@@ -650,7 +670,7 @@ void Application::drawScene() {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
                 auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
                 auto& data = Registry.get<Tool::Data>(event.payload);
-                auto input = data.inputs[data.startTime];
+                auto input = data.positions[data.startTime];
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
             }
@@ -663,8 +683,8 @@ void Application::drawScene() {
             drawlist->PathClear();
 
             ImVec2 tip { 0, 0 };
-            for (const auto& [time, input] : data.inputs) {
-                tip = ImVec2(Vector2(Vector2i(input.absolute.x, input.absolute.y)) / this->dpiScaling());
+            for (const auto& [time, position] : data.positions) {
+                tip = ImVec2(Vector2(Vector2i(position.absolute.x, position.absolute.y)) / this->dpiScaling());
                 drawlist->PathLineTo(tip);
             }
 
@@ -898,6 +918,7 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 
 void Application::mousePressEvent(MouseEvent& event) {
     auto& sqty = Registry.ctx<Sequentity::State>();
+    auto& app = Registry.ctx<ApplicationState>();
 
     entt::entity entity { entt::null };
     for (auto hovered : Registry.view<Hovered>()) {
@@ -910,11 +931,16 @@ void Application::mousePressEvent(MouseEvent& event) {
     Tool::InputPosition2D input;
     input.absolute = { absolute.x(), absolute.y() };
 
-    MouseDevice[0].pressed = true;
-    MouseDevice[0].lastPressed = entity;
-    MouseDevice[0].lastHovered = entity;
-    MouseDevice[0].data = input;
-    MouseDevice[0].position = { event.position().x(), event.position().y() };
+    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    device.pressed = true;
+    device.lastPressed = entity;
+    device.lastHovered = entity;
+
+    device.time = app.time;
+    device.startTime = app.time;
+    device.endTime = app.time;
+    device.positions.clear();
+    device.positions[app.time] = input;
 
     Registry.ctx<ApplicationState>().mousePressPosition = event.position();
 
@@ -923,6 +949,8 @@ void Application::mousePressEvent(MouseEvent& event) {
 
 
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
+    auto& app = Registry.ctx<ApplicationState>();
+
     auto delta = event.relativePosition();
     auto absolute = event.position();
     auto relative = (event.position() - Registry.ctx<ApplicationState>().mousePressPosition);
@@ -938,17 +966,21 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
         break;
     };
 
-    MouseDevice[0].data = input;
-    MouseDevice[0].position = { event.position().x(), event.position().y() };
-    MouseDevice[0].lastHovered = entity;
-    MouseDevice[0].changed = true;
+    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+    device.lastHovered = entity;
+    device.changed = true;
+
+    device.time = app.time;
+    device.endTime = app.time;
+    device.positions[app.time] = input;
 
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 
 void Application::mouseReleaseEvent(MouseEvent& event) {
-    MouseDevice[0].data = Tool::InputPosition2D{};
-    MouseDevice[0].released = true;
+    auto& device = Registry.get<MouseDevice>(_devices["mouse0"]);
+
+    device.released = true;
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }
