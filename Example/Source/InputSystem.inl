@@ -69,12 +69,12 @@ static void MouseInputSystem() {
         auto& app = Registry.ctx<ApplicationState>();
         auto entity = device.lastPressed;
 
+        device._positions.clear();
         device._pressPosition = device.position;
 
         if (Registry.valid(entity)) {
-            assert(!Registry.has<Tool::BeginIntent>(device.assignedTool));
-            Registry.assign<Tool::BeginIntent>(device.assignedTool);
             copy_to_tool(device, device.lastPressed);
+            Registry.assign<Tool::BeginIntent>(device.assignedTool);
         }
     };
 
@@ -83,8 +83,8 @@ static void MouseInputSystem() {
         auto entity = device.lastPressed;
 
         // May be updated by events (that we would override)
-        Registry.assign<Tool::UpdateIntent>(device.assignedTool, app.time);
         copy_to_tool(device, device.lastPressed);
+        Registry.assign<Tool::UpdateIntent>(device.assignedTool, app.time);
     };
 
     auto drag_nothing = [](MouseDevice& device) {
@@ -99,23 +99,14 @@ static void MouseInputSystem() {
 
         if (Registry.valid(entity)) {
             auto& app = Registry.ctx<ApplicationState>();
-            Registry.assign_or_replace<Tool::PreviewIntent>(device.assignedTool);
             copy_to_tool(device, device.lastHovered, false);
+            Registry.assign_or_replace<Tool::PreviewIntent>(device.assignedTool);
         }
     };
 
     auto release = [](MouseDevice& device) {
         auto& app = Registry.ctx<ApplicationState>();
-
-        if (app.recording) {
-			auto data = Registry.try_get<Tool::Data>(device.assignedTool);
-			if (data != nullptr) {
-				Debug() << "Assigning a record intent to the tool with data starting @" << data->startTime;
-			}
-			Registry.assign_or_replace<Tool::RecordIntent>(device.assignedTool);
-        }
-
-        device._positions.clear();
+        Registry.assign_or_replace<Tool::FinishIntent>(device.assignedTool);
     };
 
     // Mappings

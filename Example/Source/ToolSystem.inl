@@ -83,9 +83,10 @@ struct BeginIntent {};
 struct UpdateIntent { int time; };
 struct PreviewIntent {};
 struct FinishIntent {};
-struct RecordIntent {};
 struct AbortIntent {};
 struct SelfDestructIntent {};
+
+struct Recording {};
 
 struct SelectTool {};
 struct ScrubTool {};
@@ -287,7 +288,7 @@ void ScaleSystem() {
 
 
 /**
- * @brief Record a device
+ * @brief Record a tool
  *
  *      __________ 
  *     |          |
@@ -298,11 +299,7 @@ void ScaleSystem() {
  *
  */
 void RecordSystem() {
-    Registry.view<Meta, Data, RecordIntent>().less([](auto entity,
-                                                      const auto& meta,
-                                                      const auto& data) {
-        Debug() << "Acting on record intent of tool with start @" << data.startTime;
-
+    auto begin = [](auto entity, const auto& meta, const auto& data) {
         auto [name, color] = Registry.get<Name, Color>(data.target);
 
         if (!Registry.has<Sequentity::Track>(data.target)) {
@@ -318,20 +315,49 @@ void RecordSystem() {
             channel.color = meta.color;
         }
 
-        auto tool_copy = Registry.create();
-
         auto& event = Sequentity::PushEvent(channel, {
             data.startTime,
-            data.endTime - data.startTime + 1,          /* length= */
+            1,          /* length= */
             color,
             meta.eventType,
-            tool_copy
-        });
 
-        // NOTE: Must stomp *after* accessing the `data` variable above
-        //       Otherwise, it goes corrupt (why?!)
-        Registry.stomp(tool_copy, entity, Registry);
-    });
+            // Leave a breadcrumb for update and finish to latch onto
+            entity
+        });
+    };
+
+    auto update = [](auto entity, const auto& intent, const auto& data) {
+        
+        // TODO: Find some better way of getting hold of the event
+        //       created @ BeginIntent
+        Registry.view<Sequentity::Track>().each([&](auto& track) {
+            for (auto& [type, channel] : track.channels) {
+                for (auto& event : channel.events) {
+                    if (event.payload == entity) {
+                        event.length = data.endTime - data.startTime;
+                    }
+                }
+            }
+        });
+    };
+
+    auto finish = [](auto entity) {
+        Registry.view<Sequentity::Track>().each([&](auto& track) {
+            for (auto& [type, channel] : track.channels) {
+                for (auto& event : channel.events) {
+                    if (event.payload == entity) {
+                        auto copy = Registry.create();
+                        Registry.stomp(copy, entity, Registry);
+                        event.payload = copy;
+                    }
+                }
+            }
+        });
+    };
+
+    Registry.view<Recording, BeginIntent, Meta, Data>().less(begin);
+    Registry.view<Recording, UpdateIntent, Data>().less(update);
+    Registry.view<Recording, FinishIntent>().less(finish);
 }
 
 
@@ -346,14 +372,13 @@ void System() {
     ScaleSystem();
     // SelectSystem();
     // ScrubSystem();
-
     RecordSystem();
 
     Registry.reset<SetupIntent>();
     Registry.reset<BeginIntent>();
     Registry.reset<UpdateIntent>();
     Registry.reset<FinishIntent>();
-    Registry.reset<RecordIntent>();
+    // Registry.reset<Recording>();
     Registry.reset<PreviewIntent>();
 }
 

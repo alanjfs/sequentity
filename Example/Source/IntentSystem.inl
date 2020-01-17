@@ -11,6 +11,9 @@ struct ScaleIntent {
 };
 
 
+struct SortTracksIntent {};
+
+
 static void IntentSystem() {
     Registry.view<MoveIntent, Position>().each([](const auto& intent, auto& position) {
         position += Position{ intent.x, intent.y };
@@ -28,8 +31,15 @@ static void IntentSystem() {
         if (size.y() < 5) size.y() = 5;
     });
 
+    Registry.view<SortTracksIntent>().less([]() {
+        Registry.sort<Sequentity::Track>([](const entt::entity lhs, const entt::entity rhs) {
+            return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
+        });
+    });
+
     // All intents have been taking into account
     Registry.reset<MoveIntent>();
     Registry.reset<RotateIntent>();
     Registry.reset<ScaleIntent>();
+    Registry.reset<SortTracksIntent>();
 }

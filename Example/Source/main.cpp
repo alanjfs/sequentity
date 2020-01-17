@@ -76,17 +76,13 @@ public:
 
 private:
     void onTimeChanged(); // Apply active events from Sequentity
-    void onNewTrack();
+    void onRecordingChanged(bool recording);
+    void onNewTrack(entt::entity);
     void pollGamepad();
 
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
 
-    // Sequentity event handlers
-    void onToolEvent(entt::entity entity, const Sequentity::Event& event, int time);
-    void onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time);
-    void onRotateEvent(entt::entity entity, const Sequentity::Event& event, int time);
-    void onScaleEvent(entt::entity entity, const Sequentity::Event& event, int time);
 
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
@@ -194,7 +190,7 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
     this->setSwapInterval(1);  // VSync
 
-    Registry.create();  // Bad bad
+    Registry.destroy(Registry.create());  // Make index 0 invalid
 
     // Synchronise Sequentity with our internal application selection
     Registry.on_construct<Selected>().connect<on_select_constructed>();
@@ -229,10 +225,8 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 }
 
 
-void Application::onNewTrack() {
-    Registry.sort<Sequentity::Track>([this](const entt::entity lhs, const entt::entity rhs) {
-        return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
-    });
+void Application::onNewTrack(entt::entity entity) {
+    Registry.assign<SortTracksIntent>(entity);
 }
 
 
@@ -346,6 +340,7 @@ void Application::onTimeChanged() {
                                                           const Sequentity::Channel& channel,
                                                           const Sequentity::Event& event) {
             entt::entity tool = event.payload;
+            if (!Registry.valid(event.payload)) return;
 
             // Some events don't carry a tool, and that's ok.
             if (!Registry.has<Tool::Data>(tool)) return;
@@ -382,6 +377,7 @@ void Application::reset() {
     });
 
     Registry.view<Input::MouseDevice>().each([](auto& device) {
+        device.released = device.dragging;
         device.dragging = false;
     });
 }
@@ -469,13 +465,30 @@ void Application::drawCentralWidget() {
 }
 
 
+void Application::onRecordingChanged(bool recording) {
+    // TODO: Give user control over which devices become record-enabled
+    Registry.reset<Tool::Recording>();
+
+    if (recording) {
+        Registry.view<Tool::Meta>().each([](auto entity, const auto& meta) {
+            Registry.assign<Tool::Recording>(entity);
+        });
+    }
+}
+
+
 void Application::drawTransport() {
     auto& sqty = Registry.ctx<Sequentity::State>();
+    auto& app = Registry.ctx<ApplicationState>();
 
     ImGui::Begin("Transport", nullptr);
     {
         if (ImGui::Button("Play")) this->play(); ImGui::SameLine();
-        if (ImGui::Button("Record")) Registry.ctx<ApplicationState>().recording ^= true; ImGui::SameLine();
+        if (ImGui::Button("Record")) {
+            app.recording ^= true;
+            onRecordingChanged(app.recording);
+        }
+        ImGui::SameLine();
         if (ImGui::Button("<")) this->step(-1); ImGui::SameLine();
         if (ImGui::Button(">")) this->step(1); ImGui::SameLine();
         if (ImGui::Button("Stop")) this->stop(); ImGui::SameLine();
@@ -512,9 +525,11 @@ void Application::setCurrentTool(Tool::Type type) {
     _currentToolType = type;
 
     Registry.view<Input::MouseDevice>().each([](auto& device) {
+        device.released = device.dragging;
         device.dragging = false;
     });
 
+    auto& app = Registry.ctx<ApplicationState>();
     auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
     auto& tool = device.assignedTool;
 
@@ -525,6 +540,9 @@ void Application::setCurrentTool(Tool::Type type) {
     Debug() << "Assigning a new tool..";
     tool = Registry.create();
 
+    if (app.recording) {
+        Registry.assign<Tool::Recording>(tool);
+    }
 
     if (type == Tool::Type::Translate) {
         this->setCursor(Cursor::Crosshair);
@@ -533,7 +551,7 @@ void Application::setCurrentTool(Tool::Type type) {
         Registry.assign<Tool::Label>(tool, "Translate");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Translate);
-        Registry.assign<Tool::Meta>(tool, "Translate", ImColor::HSV(0.0f, 0.5f, 0.5f), Tool::Type::Translate, Tool::TranslateEvent);
+        Registry.assign<Tool::Meta>(tool, "Translate", ImColor::HSV(0.0f, 0.75f, 0.75f), Tool::Type::Translate, Tool::TranslateEvent);
     }
 
     else if (type == Tool::Type::Rotate) {
@@ -543,7 +561,7 @@ void Application::setCurrentTool(Tool::Type type) {
         Registry.assign<Tool::Label>(tool, "Rotate");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Rotate);
-        Registry.assign<Tool::Meta>(tool, "Rotate", ImColor::HSV(0.33f, 0.5f, 0.75f), Tool::Type::Rotate, Tool::RotateEvent);
+        Registry.assign<Tool::Meta>(tool, "Rotate", ImColor::HSV(0.33f, 0.75f, 0.75f), Tool::Type::Rotate, Tool::RotateEvent);
     }
 
     else if (type == Tool::Type::Scale) {
@@ -553,7 +571,7 @@ void Application::setCurrentTool(Tool::Type type) {
         Registry.assign<Tool::Label>(tool, "Scale");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Scale);
-        Registry.assign<Tool::Meta>(tool, "Scale", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Scale, Tool::ScaleEvent);
+        Registry.assign<Tool::Meta>(tool, "Scale", ImColor::HSV(0.55f, 0.75f, 0.75f), Tool::Type::Scale, Tool::ScaleEvent);
     }
 
     else if (type == Tool::Type::Scrub) {
@@ -563,7 +581,7 @@ void Application::setCurrentTool(Tool::Type type) {
         Registry.assign<Tool::Label>(tool, "Scrub");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Scrub);
-        Registry.assign<Tool::Meta>(tool, "Scrub", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Scrub, Tool::ScrubEvent);
+        Registry.assign<Tool::Meta>(tool, "Scrub", ImColor::HSV(0.66f, 0.75f, 0.75f), Tool::Type::Scrub, Tool::ScrubEvent);
     }
 
     else if (type == Tool::Type::Select) {
@@ -573,7 +591,7 @@ void Application::setCurrentTool(Tool::Type type) {
         Registry.assign<Tool::Label>(tool, "Select");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Select);
-        Registry.assign<Tool::Meta>(tool, "Select", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Select, Tool::ScaleEvent);
+        Registry.assign<Tool::Meta>(tool, "Select", ImColor::HSV(0.66f, 0.75f, 0.75f), Tool::Type::Select, Tool::ScaleEvent);
     }
 
     else {
@@ -585,7 +603,12 @@ void Application::setCurrentTool(Tool::Type type) {
 
 void Application::drawScene() {
     auto& sqty = Registry.ctx<Sequentity::State>();
+    auto& app = Registry.ctx<ApplicationState>();
+
     static bool windowEntered { false };
+
+    // This method is solely responsible for providing this component
+    Registry.reset<Hovered>();
 
     ImGui::Begin("3D Viewport", nullptr);
     {
@@ -624,8 +647,9 @@ void Application::drawScene() {
         }
 
         if (Widgets::Button("Scrub (K)", _currentToolType == Tool::Type::Scrub)) {}
-        if (Widgets::RecordButton("Record (T)", Registry.ctx<ApplicationState>().recording)) {
-            Registry.ctx<ApplicationState>().recording ^= true;
+        if (Widgets::RecordButton("Record (T)", app.recording)) {
+            app.recording ^= true;
+            onRecordingChanged(app.recording);
         }
 
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
@@ -640,7 +664,7 @@ void Application::drawScene() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = sqty.current_time + (Registry.ctx<ApplicationState>().playing ? 1 : 0);
+            auto time = sqty.current_time + (app.playing ? 1 : 0);
             bool selected = Registry.has<Selected>(entity);
             Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
@@ -659,6 +683,8 @@ void Application::drawScene() {
             if (event.type == Tool::TranslateEvent) {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
                 auto scaledpos = Vector2(position) / dpiScaling();
+                if (!Registry.valid(event.payload)) return;
+				if (!Registry.has<Tool::Data>(event.payload)) return;
                 auto& data = Registry.get<Tool::Data>(event.payload);
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
@@ -805,13 +831,6 @@ void Application::drawEvent() {
 
     _imgui.newFrame();
 
-    // Erase all current inputs
-    // Registry.reset<Input::Position2D>();
-    // Registry.reset<Input::Position3D>();
-
-    // Restore order to this world
-    Registry.reset<Hovered>();
-
          if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
@@ -891,7 +910,11 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::W)                        setCurrentTool(Tool::Type::Translate);
     if (event.key() == KeyEvent::Key::E)                        setCurrentTool(Tool::Type::Rotate);
     if (event.key() == KeyEvent::Key::R)                        setCurrentTool(Tool::Type::Scale);
-    if (event.key() == KeyEvent::Key::T)                        Registry.ctx<ApplicationState>().recording ^= true;
+    if (event.key() == KeyEvent::Key::T)                        {
+        auto& app = Registry.ctx<ApplicationState>();
+        app.recording ^= true;
+        onRecordingChanged(app.recording);
+    }
 
     if(_imgui.handleKeyPressEvent(event)) return;
 }
