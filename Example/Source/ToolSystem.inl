@@ -332,7 +332,7 @@ void RecordSystem() {
         //       Otherwise, it goes corrupt (why?!)
         Registry.stomp(tool_copy, entity, Registry);
     });
-	 }
+}
 
 
 void System() {
@@ -356,7 +356,5 @@ void System() {
     Registry.reset<RecordIntent>();
     Registry.reset<PreviewIntent>();
 }
-
-
 
 }
