@@ -341,8 +341,7 @@ void Application::onTimeChanged() {
             const auto local_time = current_time + (data.startTime - event.time);
 
             if (data.inputs.count(local_time)) {
-                data.input = data.inputs[local_time];
-                Registry.assign<Tool::UpdateIntent>(tool);
+                Registry.assign<Tool::UpdateIntent>(tool, local_time);
             }
         });
     }
@@ -508,8 +507,11 @@ void Application::setCurrentTool(Tool::Type type) {
     Debug() << "Assigning a new tool..";
     tool = Registry.create();
 
+
     if (type == Tool::Type::Translate) {
+        this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::TranslateTool>(tool);
+        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Label>(tool, "Translate");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Translate);
@@ -517,7 +519,9 @@ void Application::setCurrentTool(Tool::Type type) {
     }
 
     else if (type == Tool::Type::Rotate) {
+		this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::RotateTool>(tool);
+        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Label>(tool, "Rotate");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Rotate);
@@ -525,7 +529,9 @@ void Application::setCurrentTool(Tool::Type type) {
     }
 
     else if (type == Tool::Type::Scale) {
+		this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::ScaleTool>(tool);
+        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Label>(tool, "Scale");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Scale);
@@ -533,7 +539,9 @@ void Application::setCurrentTool(Tool::Type type) {
     }
 
     else if (type == Tool::Type::Scrub) {
+		this->setCursor(Cursor::ResizeWE);
         Registry.assign<Tool::ScrubTool>(tool);
+        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Label>(tool, "Scrub");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Scrub);
@@ -541,7 +549,9 @@ void Application::setCurrentTool(Tool::Type type) {
     }
 
     else if (type == Tool::Type::Select) {
+		this->setCursor(Cursor::Arrow);
         Registry.assign<Tool::SelectTool>(tool);
+        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Label>(tool, "Select");
         Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
         Registry.assign<Tool::Type>(tool, Tool::Type::Select);
@@ -826,7 +836,7 @@ void Application::drawEvent() {
         ImGui::ShowStyleEditor();
     }
 
-    _imgui.updateApplicationCursor(*this);
+    // _imgui.updateApplicationCursor(*this);
 
     {
         GL::Renderer::enable(GL::Renderer::Feature::Blending);

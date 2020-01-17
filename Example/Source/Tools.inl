@@ -108,8 +108,9 @@ enum State : std::uint8_t {
 };
 
 
+struct SetupIntent {};
 struct BeginIntent {};
-struct UpdateIntent {};
+struct UpdateIntent { int time; };
 struct PreviewIntent {};
 struct FinishIntent {};
 struct RecordIntent {};
@@ -129,7 +130,6 @@ struct Data {
     int startTime;
     int endTime;
 
-    InputPosition2D input;
     std::map<int, InputPosition2D> inputs;
 };
 
@@ -180,33 +180,40 @@ static const char* eventtype_to_char(EventType type) {
  *
  */
 void TranslateSystem() {
+    auto setup = []() {
+        Debug() << "Setting up Translate tool!";
+    };
+
     auto begin = [](const auto& data) {
         Registry.reset<Selected>();
         Registry.assign<Selected>(data.target);
 
         // Carry on during update
-        Registry.assign<UpdateIntent>(data.target);
+        Registry.assign<UpdateIntent>(data.target, data.time);
     };
 
     auto preview = [](const auto& data) {
         Registry.assign_or_replace<Tooltip>(data.target, "Drag to translate");
     };
 
-    auto update = [](const auto& data) {
+    auto update = [](const auto& data, const auto& intent) {
+        const auto& input = data.inputs.at(intent.time);
+
         if (!Registry.has<MoveIntent>(data.target)) {
-            Registry.assign<MoveIntent>(data.target, data.input.delta.x, data.input.delta.y);
+            Registry.assign<MoveIntent>(data.target, input.delta.x, input.delta.y);
         }
 
         else {
-            auto& intent = Registry.get<MoveIntent>(data.target);
-            intent.x += data.input.delta.x;
-            intent.y += data.input.delta.y;
+            auto& move = Registry.get<MoveIntent>(data.target);
+            move.x += input.delta.x;
+            move.y += input.delta.y;
         }
     };
 
     auto finish = [](const auto& data) {
     };
 
+    Registry.view<TranslateTool, SetupIntent>().less(setup);
     Registry.view<TranslateTool, Data, BeginIntent>().less(begin);
     Registry.view<TranslateTool, Data, PreviewIntent>().less(preview);
     Registry.view<TranslateTool, Data, UpdateIntent>().less(update);
@@ -232,21 +239,23 @@ void RotateSystem() {
         Registry.assign<Selected>(data.target);
 
         // Carry on during update
-        Registry.assign<UpdateIntent>(data.target);
+        Registry.assign<UpdateIntent>(data.target, data.time);
     };
 
     auto preview = [](const auto& data) {
         Registry.assign_or_replace<Tooltip>(data.target, "Drag to rotate");
     };
 
-    auto update = [](const auto& data) {
+    auto update = [](const auto& data, const auto& intent) {
+        const auto& input = data.inputs.at(intent.time);
+
         if (!Registry.has<RotateIntent>(data.target)) {
-            Registry.assign<RotateIntent>(data.target, data.input.delta.x);
+            Registry.assign<RotateIntent>(data.target, input.delta.x);
         
         // Intent may already have been added by an event or simultaneous tool
         } else {
-            auto& intent = Registry.get<RotateIntent>(data.target);
-            intent.angle += data.input.delta.x;
+            auto& rotate = Registry.get<RotateIntent>(data.target);
+            rotate.angle += input.delta.x;
         }
     };
 
@@ -279,19 +288,22 @@ void ScaleSystem() {
         Registry.assign<Selected>(data.target);
 
         // Carry on during update
-        Registry.assign<UpdateIntent>(data.target);
+        Registry.assign<UpdateIntent>(data.target, data.time);
     };
 
     auto preview = [](const auto& data) {
         Registry.assign_or_replace<Tooltip>(data.target, "Drag to scale");
     };
 
-    auto update = [](const auto& data) {
+    auto update = [](const auto& data, const auto& intent) {
+        const auto& input = data.inputs.at(intent.time);
+
         if (!Registry.has<ScaleIntent>(data.target)) {
-            Registry.assign<ScaleIntent>(data.target, data.input.delta.x);
+            Registry.assign<ScaleIntent>(data.target, input.delta.x);
+
         } else {
-            auto& intent = Registry.get<ScaleIntent>(data.target);
-            intent.scale += data.input.delta.x;
+            auto& scale = Registry.get<ScaleIntent>(data.target);
+            scale.scale += input.delta.x;
         }
     };
 
@@ -368,6 +380,7 @@ void System() {
 
     RecordSystem();
 
+    Registry.reset<SetupIntent>();
     Registry.reset<BeginIntent>();
     Registry.reset<UpdateIntent>();
     Registry.reset<FinishIntent>();

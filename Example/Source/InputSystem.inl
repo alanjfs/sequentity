@@ -47,12 +47,13 @@ static void MouseInputSystem() {
             assert(!Registry.has<Tool::BeginIntent>(device.assignedTool));
             Registry.assign<Tool::BeginIntent>(device.assignedTool);
 
-            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool);
-            data.target = entity;
-            data.time = app.time;
-            data.startTime = app.time;
-            data.input = device.data;
-            data.inputs[app.time] = device.data;
+            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
+                data.target = entity;
+                data.time = app.time;
+                data.startTime = app.time;
+                data.endTime = app.time;
+                data.inputs[app.time] = device.data;
+            }
         }
     };
 
@@ -61,14 +62,14 @@ static void MouseInputSystem() {
         auto entity = device.lastPressed;
 
         // May be updated by events (that we would override)
-        Registry.assign<Tool::UpdateIntent>(device.assignedTool);
+        Registry.assign<Tool::UpdateIntent>(device.assignedTool, app.time);
 
         // Update data
-        auto& data = Registry.get<Tool::Data>(device.assignedTool);
-        data.time = app.time;
-        data.endTime = app.time;
-        data.input = device.data;
-        data.inputs[app.time] = device.data;
+        auto& data = Registry.get<Tool::Data>(device.assignedTool); {
+            data.time = app.time;
+            data.endTime = app.time;
+            data.inputs[app.time] = device.data;
+        }
     };
 
     auto drag_nothing = [](MouseDevice_& device) {
@@ -85,12 +86,13 @@ static void MouseInputSystem() {
             Registry.assign_or_replace<Tool::PreviewIntent>(device.assignedTool);
 
             auto& app = Registry.ctx<ApplicationState>();
-            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool);
-            data.target = entity;
-            data.time = app.time;
-            data.startTime = app.time;
-            data.input = device.data;
-            data.inputs[app.time] = device.data;
+            auto& data = Registry.assign_or_replace<Tool::Data>(device.assignedTool); {
+                data.target = entity;
+                data.time = app.time;
+                data.startTime = app.time;
+                data.endTime = app.time;
+                data.inputs[app.time] = device.data;
+            }
         }
     };
 
