@@ -50,7 +50,7 @@ struct Event {
 
     // Map your custom data here, along with an optional type
     EventType type { EventType_Move }; // schema
-    void* data { nullptr };            // payload
+    entt::entity payload;
 
     /**
      * @brief Ignore start and end of event
@@ -93,7 +93,7 @@ struct Channel {
 
     // Map your custom data here, along with an optional type
     EventType type { EventType_Move }; // schema
-    void* data { nullptr };            // payload
+    entt::entity payload;
 
     std::vector<Event> events;
 };
@@ -112,6 +112,8 @@ struct Track {
     bool mute { false };
 
     std::unordered_map<EventType, Channel> channels;
+
+    entt::entity payload;
     
     // Internal
     bool _notsoloed { false };
