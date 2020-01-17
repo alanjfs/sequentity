@@ -55,10 +55,10 @@ static void copy_to_tool(MouseDevice device, entt::entity target, bool animation
             data.endTime = device.releaseTime;
 
         } else {
-            auto position = device._positions.at(device.time);
-            data.positions[device.time] = (*device._positions.find(device.time)).second;
-            data.startTime = data.time;
-            data.endTime = data.time;
+            auto position = (*device._positions.find(device.time)).second;
+            data.positions[device.time] = position;
+            data.startTime = device.time;
+            data.endTime = device.time;
         }
     }
 }
@@ -108,7 +108,11 @@ static void MouseInputSystem() {
         auto& app = Registry.ctx<ApplicationState>();
 
         if (app.recording) {
-            Registry.assign_or_replace<Tool::RecordIntent>(device.assignedTool);
+			auto data = Registry.try_get<Tool::Data>(device.assignedTool);
+			if (data != nullptr) {
+				Debug() << "Assigning a record intent to the tool with data starting @" << data->startTime;
+			}
+			Registry.assign_or_replace<Tool::RecordIntent>(device.assignedTool);
         }
 
         device._positions.clear();

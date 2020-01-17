@@ -13,8 +13,7 @@ struct ScaleIntent {
 
 static void IntentSystem() {
     Registry.view<MoveIntent, Position>().each([](const auto& intent, auto& position) {
-        position.x += intent.x;
-        position.y += intent.y;
+        position += Position{ intent.x, intent.y };
     });
 
     Registry.view<RotateIntent, Orientation>().each([](const auto& intent, auto& orientation) {
@@ -22,11 +21,11 @@ static void IntentSystem() {
     });
 
     Registry.view<ScaleIntent, Size>().each([](const auto& intent, auto& size) {
-        size.x += intent.scale;
-        size.y += intent.scale;
+        size.x() += intent.scale;
+        size.y() += intent.scale;
 
-        if (size.x < 5) size.x = 5;
-        if (size.y < 5) size.y = 5;
+        if (size.x() < 5) size.x() = 5;
+        if (size.y() < 5) size.y() = 5;
     });
 
     // All intents have been taking into account

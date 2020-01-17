@@ -301,16 +301,13 @@ void RecordSystem() {
     Registry.view<Meta, Data, RecordIntent>().less([](auto entity,
                                                       const auto& meta,
                                                       const auto& data) {
-        Debug() << "Recording tool" << meta.name;
+        Debug() << "Acting on record intent of tool with start @" << data.startTime;
 
         auto [name, color] = Registry.get<Name, Color>(data.target);
 
         if (!Registry.has<Sequentity::Track>(data.target)) {
             Registry.assign<Sequentity::Track>(data.target, name.text, color);
         }
-
-        // TODO: Get rid of this, it assumes every tool interation involves position
-        auto origin = Registry.get<Position>(data.target);
 
         auto& track = Registry.get<Sequentity::Track>(data.target);
         bool is_new_channel = !Sequentity::HasChannel(track, meta.eventType);
@@ -322,15 +319,18 @@ void RecordSystem() {
         }
 
         auto tool_copy = Registry.create();
-        Registry.stomp(tool_copy, entity, Registry);
 
         auto& event = Sequentity::PushEvent(channel, {
             data.startTime,
-            data.time - data.startTime + 1,          /* length= */
+            data.endTime - data.startTime + 1,          /* length= */
             color,
             meta.eventType,
             tool_copy
         });
+
+        // NOTE: Must stomp *after* accessing the `data` variable above
+        //       Otherwise, it goes corrupt (why?!)
+        Registry.stomp(tool_copy, entity, Registry);
     });
 	 }
 

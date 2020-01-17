@@ -2,18 +2,15 @@
 
 using TimeType = int;
 
-struct Position {
-    int x { 0 };
-    int y { 0 };
-};
+using Position = Vector2i;
 
 using Orientation = float;
 
-struct InitialPosition : Position {};
-struct StartPosition : Position {};
+struct InitialPosition : Position { using Position::Position; };
+struct StartPosition : Position { using Position::Position; };
 
-struct Size : Position {};
-struct InitialSize : Size {};
+struct Size : Position { using Position::Position; };
+struct InitialSize : Size { using Size::Size; };
 
 using Index = unsigned int;
 
@@ -48,20 +45,3 @@ struct InputPosition3D : Vector3i {
 // From e.g. WASD keys or D-PAD on XBox controller
 enum class Direction2D : std::uint8_t { Left = 0, Up, Right, Down };
 enum class Direction3D : std::uint8_t { Left = 0, Up, Right, Down, Forward, Backward };
-
-
-// Math
-
-inline Position operator*(const Position& pos, const Position other) {
-    return Position{ pos.x * other.x, pos.y * other.y };
-}
-
-inline Position operator+(const Position& pos, const Position other) {
-    return Position{ pos.x + other.x, pos.y + other.y };
-}
-
-inline Position operator-(const Position& pos, const Position other) {
-    return Position{ pos.x - other.x, pos.y - other.y };
-}
-
-// inline operator Position::Vector2i() const { return { x, y };}

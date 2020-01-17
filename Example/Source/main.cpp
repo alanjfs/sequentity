@@ -40,8 +40,6 @@ struct ApplicationState {
     int time { 0 };
     int previousTime { 0 };
 
-    Vector2i mousePressPosition { 0, 0 };
-
 };
 
 // For readability only; this really is just one big cpp file
@@ -630,22 +628,14 @@ void Application::drawScene() {
             Registry.ctx<ApplicationState>().recording ^= true;
         }
 
-        auto dpos = Vector2i(Vector2(ImGui::GetIO().MouseDelta));
-        auto rpos = Vector2i(Vector2(ImGui::GetMouseDragDelta(0, 0.0f)));
-        auto apos = Vector2i(Vector2(ImGui::GetIO().MousePos.x - ImGui::GetWindowPos().x,
-                                     ImGui::GetIO().MousePos.y - ImGui::GetWindowPos().y));
-        Position deltaPosition { dpos.x(), dpos.y() };
-        Position relativePosition { rpos.x(), rpos.y() };
-        Position absolutePosition { apos.x(), apos.y() };
-
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
                                                                            const auto& name,
                                                                            const auto& position,
                                                                            const auto& orientation,
                                                                            const auto& color,
                                                                            const auto& size) {
-            auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
-            auto imsize = ImVec2((float)size.x, (float)size.y);
+            auto scaledpos = Vector2(position) / dpiScaling();
+            auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2(scaledpos);
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
@@ -668,7 +658,7 @@ void Application::drawScene() {
         Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
             if (event.type == Tool::TranslateEvent) {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
-                auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
+                auto scaledpos = Vector2(position) / dpiScaling();
                 auto& data = Registry.get<Tool::Data>(event.payload);
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
@@ -933,8 +923,6 @@ void Application::mousePressEvent(MouseEvent& event) {
     device.pressTime = app.time;
     device.releaseTime = app.time;
     device.position = event.position();
-
-    Registry.ctx<ApplicationState>().mousePressPosition = event.position();
 
     if (_imgui.handleMousePressEvent(event)) return;
 }
