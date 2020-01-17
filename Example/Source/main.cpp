@@ -37,11 +37,12 @@ struct ApplicationState {
     bool running { true };
 
     // Track in order to determine whether time has changed
+    int time { 0 };
     int previousTime { 0 };
+
     Vector2i mousePressPosition { 0, 0 };
 
 };
-
 
 // For readability only; this really is just one big cpp file
 #include "Utils.inl"
@@ -50,7 +51,7 @@ struct ApplicationState {
 #include "Widgets.inl"
 #include "IntentSystem.inl"
 #include "Tools.inl"
-
+#include "InputSystem.inl"
 
 
 class Application : public Platform::Application {
@@ -82,8 +83,6 @@ private:
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
 
-    Tool::Ptr& currentTool() { return _allTools[_currentToolType]; }
-
     // Sequentity event handlers
     void onToolEvent(entt::entity entity, const Sequentity::Event& event, int time);
     void onTranslateEvent(entt::entity entity, const Sequentity::Event& event, int time);
@@ -103,12 +102,8 @@ private:
 
     Vector2 _dpiScaling { 1.0f, 1.0f };
 
-    Tool::Recorder _recorder{};
-
     Tool::Type _currentToolType { Tool::Type::Translate };
     Tool::Type _previousToolType { Tool::Type::Translate };
-
-    std::unordered_map<Tool::Type, Tool::Ptr> _allTools;
 
     bool _showSequencer { true };
     bool _showMetrics { false };
@@ -131,11 +126,6 @@ private:
 
     // Experimental gamepad support
     std::vector<entt::entity> _entities;
-
-    // Experimental multi-device support
-    // If we map a tool, to which device are we mapping it?
-    Tool::Device _currentDevice { Tool::Device::Mouse };
-    std::unordered_map<Tool::Device, Tool::Ptr> _toolByDevice;
 };
 
 
@@ -219,14 +209,6 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     Registry.set<Sequentity::State>();
     Registry.set<ApplicationState>();
 
-    Registry.set<Tool::Collection>();
-
-    _allTools[Tool::Type::Select] = std::make_unique<Tool::SelectContext>();
-    _allTools[Tool::Type::Translate] = std::make_unique<Tool::TranslateContext>();
-    _allTools[Tool::Type::Rotate] = std::make_unique<Tool::RotateContext>();
-    _allTools[Tool::Type::Scale] = std::make_unique<Tool::ScaleContext>();
-    _allTools[Tool::Type::Scrub] = std::make_unique<Tool::ScrubContext>();
-
     setCurrentTool(Tool::Type::Translate);
 
     setup();
@@ -264,35 +246,35 @@ void Application::setup() {
     Registry.assign<Size>(red, 100, 100);
     Registry.assign<Color>(red, ImColor::HSV(0.0f, 0.75f, 0.75f));
     Registry.assign<Orientation>(red, 0.0_degf);
-    Registry.assign<Position>(red, 300, 50 + 50);
+    Registry.assign<Position>(red, 500, 200);
 
     Registry.assign<Name>(green, "leftLeg");
     Registry.assign<Index>(green, 2);
     Registry.assign<Size>(green, 100, 100);
     Registry.assign<Color>(green, ImColor::HSV(0.33f, 0.75f, 0.75f));
     Registry.assign<Orientation>(green, 0.0_degf);
-    Registry.assign<Position>(green, 500, 50 + 50);
+    Registry.assign<Position>(green, 700, 200);
 
     Registry.assign<Name>(blue, "foot");
     Registry.assign<Index>(blue, 3);
     Registry.assign<Size>(blue, 100, 100);
     Registry.assign<Color>(blue, ImColor::HSV(0.55f, 0.75f, 0.75f));
     Registry.assign<Orientation>(blue, 0.0_degf);
-    Registry.assign<Position>(blue, 700, 50 + 50);
+    Registry.assign<Position>(blue, 1000, 200);
 
     Registry.assign<Name>(purple, "leftShoulder");
     Registry.assign<Index>(purple, 4);
     Registry.assign<Size>(purple, 80, 100);
     Registry.assign<Color>(purple, ImColor::HSV(0.45f, 0.75f, 0.75f));
     Registry.assign<Orientation>(purple, 0.0_degf);
-    Registry.assign<Position>(purple, 350, 200 + 50);
+    Registry.assign<Position>(purple, 400, 400);
 
     Registry.assign<Name>(gray, "head");
     Registry.assign<Index>(gray, 5);
     Registry.assign<Size>(gray, 80, 40);
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
-    Registry.assign<Position>(gray, 550, 200 + 50);
+    Registry.assign<Position>(gray, 600, 400);
 
     _entities.push_back(red);
     _entities.push_back(green);
@@ -337,6 +319,7 @@ void Application::stop() {
 
 
 void Application::onTimeChanged() {
+    auto& app = Registry.ctx<ApplicationState>();
     auto& sqty = Registry.ctx<Sequentity::State>();
     auto startTime = sqty.range[0];
     auto current_time = sqty.current_time;
@@ -349,20 +332,23 @@ void Application::onTimeChanged() {
         Sequentity::Intersect(Registry, current_time, [&](entt::entity subject,
                                                           const Sequentity::Channel& channel,
                                                           const Sequentity::Event& event) {
-            if (event.data == nullptr) {
-                // Some events don't carry data, and that's OK
-                return;
-            }
+            entt::entity tool = event.payload;
 
-            auto data = static_cast<Tool::EventData*>(event.data);
-            const auto index = current_time + (data->start - event.time);
+            // Some events don't carry a tool, and that's ok.
+            if (!Registry.has<Tool::Data>(tool)) return;
 
-            if (data->input.count(index)) {
-                Tool::Context* tool = static_cast<Tool::Context*>(channel.data);
-                tool->update(subject, data->input[index]);
+            auto& data = Registry.get<Tool::Data>(tool);
+            const auto local_time = current_time + (data.startTime - event.time);
+
+            if (data.inputs.count(local_time)) {
+                data.input = data.inputs[local_time];
+                Registry.assign<Tool::UpdateIntent>(tool);
             }
         });
     }
+
+    app.time = sqty.current_time;
+    app.previousTime = sqty.current_time;
 }
 
 
@@ -383,7 +369,8 @@ void Application::reset() {
         size = initial;
     });
 
-    currentTool()->abort();
+    // TODO: Take abortion into account, for all active devices
+    MouseDevice[0].dragging = false;
 }
 
 
@@ -396,20 +383,15 @@ void Application::clear() {
     Registry.view<Sequentity::Track>().each([&channelCount, &eventCount](auto& track) {
         for (auto& [type, channel] : track.channels) {
 
-            delete static_cast<Tool::Context*>(channel.data);
-            channelCount++;
+            if (Registry.valid(channel.payload)) {
+                Registry.destroy(channel.payload);
+                channelCount++;
+            }
 
             for (auto& event : channel.events) {
-                if (type == Tool::TranslateEvent ||
-                    type == Tool::RotateEvent ||
-                    type == Tool::ScaleEvent)
-                {
-                    delete static_cast<Tool::EventData*>(event.data);
+                if (Registry.valid(event.payload)) {
+                    Registry.destroy(event.payload);
                     eventCount++;
-                }
-
-                else {
-                    Warning() << "Unknown event type" << event.type << "memory has leaked!";
                 }
             }
         }
@@ -513,12 +495,63 @@ void Application::drawTransport() {
 
 
 void Application::setCurrentTool(Tool::Type type) {
-	currentTool()->teardown();
-
     _previousToolType = _currentToolType;
     _currentToolType = type;
 
-    currentTool()->setup();
+    MouseDevice[0].dragging = false;
+    auto& tool = MouseDevice[0].assignedTool;
+
+    if (Registry.valid(tool)) {
+        Registry.assign<Tool::SelfDestructIntent>(tool);
+    }
+
+    Debug() << "Assigning a new tool..";
+    tool = Registry.create();
+
+    if (type == Tool::Type::Translate) {
+        Registry.assign<Tool::TranslateTool>(tool);
+        Registry.assign<Tool::Label>(tool, "Translate");
+        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
+        Registry.assign<Tool::Type>(tool, Tool::Type::Translate);
+        Registry.assign<Tool::Meta>(tool, "Translate", ImColor::HSV(0.0f, 0.5f, 0.5f), Tool::Type::Translate, Tool::TranslateEvent);
+    }
+
+    else if (type == Tool::Type::Rotate) {
+        Registry.assign<Tool::RotateTool>(tool);
+        Registry.assign<Tool::Label>(tool, "Rotate");
+        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
+        Registry.assign<Tool::Type>(tool, Tool::Type::Rotate);
+        Registry.assign<Tool::Meta>(tool, "Rotate", ImColor::HSV(0.33f, 0.5f, 0.75f), Tool::Type::Rotate, Tool::RotateEvent);
+    }
+
+    else if (type == Tool::Type::Scale) {
+        Registry.assign<Tool::ScaleTool>(tool);
+        Registry.assign<Tool::Label>(tool, "Scale");
+        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
+        Registry.assign<Tool::Type>(tool, Tool::Type::Scale);
+        Registry.assign<Tool::Meta>(tool, "Scale", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Scale, Tool::ScaleEvent);
+    }
+
+    else if (type == Tool::Type::Scrub) {
+        Registry.assign<Tool::ScrubTool>(tool);
+        Registry.assign<Tool::Label>(tool, "Scrub");
+        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
+        Registry.assign<Tool::Type>(tool, Tool::Type::Scrub);
+        Registry.assign<Tool::Meta>(tool, "Scrub", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Scrub, Tool::ScrubEvent);
+    }
+
+    else if (type == Tool::Type::Select) {
+        Registry.assign<Tool::SelectTool>(tool);
+        Registry.assign<Tool::Label>(tool, "Select");
+        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
+        Registry.assign<Tool::Type>(tool, Tool::Type::Select);
+        Registry.assign<Tool::Meta>(tool, "Select", ImColor::HSV(0.66f, 0.5f, 0.75f), Tool::Type::Select, Tool::ScaleEvent);
+    }
+
+    else {
+        Warning() << "Woops, what tool is that?";
+        assert(false);
+    }
 }
 
 
@@ -581,8 +614,9 @@ void Application::drawScene() {
                                                                            const auto& orientation,
                                                                            const auto& color,
                                                                            const auto& size) {
+            auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
             auto imsize = ImVec2((float)size.x, (float)size.y);
-            auto impos = ImVec2((float)position.x, (float)position.y);
+            auto impos = ImVec2(scaledpos);
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
@@ -604,12 +638,32 @@ void Application::drawScene() {
         Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
             if (event.type == Tool::TranslateEvent) {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
-                auto data = static_cast<Tool::EventData*>(event.data);
-                auto input = data->input[data->start];
-                Position pos = position + (input.absolute - data->origin);
-                auto impos = ImVec2(Vector2(Vector2i(pos.x, pos.y)));
+                auto scaledpos = Vector2(Vector2i(position.x, position.y)) / dpiScaling();
+                auto& data = Registry.get<Tool::Data>(event.payload);
+                auto input = data.inputs[data.startTime];
+                auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
             }
+        });
+
+        // Preview active tools
+        Registry.view<Tool::Data, Tool::Meta>().each([&](auto entity, const auto& data, const auto& meta) {
+            auto* drawlist = ImGui::GetWindowDrawList();
+
+            drawlist->PathClear();
+
+            ImVec2 tip { 0, 0 };
+            for (const auto& [time, input] : data.inputs) {
+                tip = ImVec2(Vector2(Vector2i(input.absolute.x, input.absolute.y)) / this->dpiScaling());
+                drawlist->PathLineTo(tip);
+            }
+
+            drawlist->PathStroke(ImColor(meta.color), false, 1.0f);
+            drawlist->AddCircleFilled(
+                tip,
+                5.0f,
+                ImColor(meta.color)
+            );
         });
     }
 
@@ -624,23 +678,23 @@ void Application::drawTool() {
 
     ImGui::Begin("Instrument Settings", nullptr);
     {
-        ImGui::Text(currentTool()->name());
+        // ImGui::Text(currentTool()->name());
 
-        entt::entity subject = currentTool()->subject();
-        if (Registry.valid(subject)) {
-            ImGui::Text(Registry.get<Name>(subject).text);
-        } else {
-            ImGui::Text("None");
-        }
+        // entt::entity subject = currentTool()->subject();
+        // if (Registry.valid(subject)) {
+        //     ImGui::Text(Registry.get<Name>(subject).text);
+        // } else {
+        //     ImGui::Text("None");
+        // }
 
-        ImGui::Text(Tool::tooltype_to_char(currentTool()->type()));
-        ImGui::Text(Tool::eventtype_to_char(currentTool()->eventType()));
+        // ImGui::Text(Tool::tooltype_to_char(currentTool()->type()));
+        // ImGui::Text(Tool::eventtype_to_char(currentTool()->eventType()));
 
-        auto& color = currentTool()->color();
-        ImGui::ColorEdit4("Color", &color.x);
+        // auto& color = currentTool()->color();
+        // ImGui::ColorEdit4("Color", &color.x);
 
-        auto& input = currentTool()->input();
-        ImGui::DragInt2("Input", &input.relative.x);
+        // auto& input = currentTool()->input();
+        // ImGui::DragInt2("Input", &input.relative.x);
     }
     ImGui::End();
 }
@@ -725,6 +779,8 @@ void Application::pollGamepad() {
 void Application::drawEvent() {
     GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
 
+    auto& app = Registry.ctx<ApplicationState>();
+
     _imgui.newFrame();
 
     // Erase all current inputs
@@ -737,6 +793,21 @@ void Application::drawEvent() {
          if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
     else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
+    InputSystem();
+    pollGamepad();
+
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
+
+    if (app.playing) step(1);
+
+    // current_time is *mutable* and can change from anywhere
+    // Thus, we compare it against the previous time to
+    // determine whether or not it has changed.
+    if (sqty.current_time != app.previousTime) {
+        onTimeChanged();
+    }
+
+    Tool::System();
     IntentSystem();
 
     drawCentralWidget();
@@ -744,22 +815,7 @@ void Application::drawEvent() {
     drawScene();
     drawTool();
 
-    pollGamepad();
-
-    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
-
-    if (Registry.ctx<ApplicationState>().playing) step(1);
-
-    // current_time is *mutable* and can change from anywhere
-    // Thus, we compare it against the previous time to
-    // determine whether or not it has changed.
-    if (sqty.current_time != Registry.ctx<ApplicationState>().previousTime) {
-        onTimeChanged();
-        Registry.ctx<ApplicationState>().previousTime = sqty.current_time;
-    }
-
     drawEventEditor();
-
 
     if (_showMetrics) {
         ImGui::ShowMetricsWindow(&_showMetrics);
@@ -788,7 +844,7 @@ void Application::drawEvent() {
 
     swapBuffers();
 
-    if (Registry.ctx<ApplicationState>().running) {
+    if (app.running) {
         redraw();
     }
 }
@@ -833,62 +889,56 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 void Application::mousePressEvent(MouseEvent& event) {
     auto& sqty = Registry.ctx<Sequentity::State>();
 
-    entt::entity hovered { entt::null };
-    Registry.view<Hovered>().each([&](auto entity, const auto) {
-        hovered = entity;
-    });
+    entt::entity entity { entt::null };
+    for (auto hovered : Registry.view<Hovered>()) {
+        entity = hovered;
+        break;
+    };
 
-    auto absolute = event.position() / dpiScaling();
+    auto absolute = event.position();
 
     Tool::InputPosition2D input;
     input.absolute = { absolute.x(), absolute.y() };
 
-    bool can_record = currentTool()->begin(hovered, input) && currentTool()->canRecord();
-
-    if (can_record && Registry.ctx<ApplicationState>().recording) {
-        Debug() << "Starting to record..";
-        _recorder.begin(*currentTool().get(), sqty.current_time);
-    }
+    MouseDevice[0].pressed = true;
+    MouseDevice[0].lastPressed = entity;
+    MouseDevice[0].lastHovered = entity;
+    MouseDevice[0].data = input;
+    MouseDevice[0].position = { event.position().x(), event.position().y() };
 
     Registry.ctx<ApplicationState>().mousePressPosition = event.position();
+
     if (_imgui.handleMousePressEvent(event)) return;
 }
 
 
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
-    auto delta = event.relativePosition() / dpiScaling();
-    auto absolute = event.position() / dpiScaling();
-    auto relative = (event.position() - Registry.ctx<ApplicationState>().mousePressPosition) / dpiScaling();
+    auto delta = event.relativePosition();
+    auto absolute = event.position();
+    auto relative = (event.position() - Registry.ctx<ApplicationState>().mousePressPosition);
 
     Tool::InputPosition2D input;
     input.absolute = { absolute.x(), absolute.y() };
     input.relative = { relative.x(), relative.y() };
     input.delta = { delta.x(), delta.y() };
 
-    bool can_record = currentTool()->update(input) && currentTool()->canRecord();
+    entt::entity entity { entt::null };
+    for (auto hovered : Registry.view<Hovered>()) {
+        entity = hovered;
+        break;
+    };
 
-    if (can_record && Registry.ctx<ApplicationState>().recording) {
-        auto& sqty = Registry.ctx<Sequentity::State>();
-
-        if (sqty.current_time > sqty.range[1] - 1) {
-            currentTool()->abort();
-        }
-        else {
-            Debug() << "Updating recording..";
-            _recorder.update(*currentTool().get(), sqty.current_time);
-        }
-    }
+    MouseDevice[0].data = input;
+    MouseDevice[0].position = { event.position().x(), event.position().y() };
+    MouseDevice[0].lastHovered = entity;
+    MouseDevice[0].changed = true;
 
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 
 void Application::mouseReleaseEvent(MouseEvent& event) {
-    bool can_record = currentTool()->finish() && currentTool()->canRecord();
-
-    if (can_record && Registry.ctx<ApplicationState>().recording) {
-        auto& sqty = Registry.ctx<Sequentity::State>();
-        _recorder.finish(*currentTool().get());
-    }
+    MouseDevice[0].data = Tool::InputPosition2D{};
+    MouseDevice[0].released = true;
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }
