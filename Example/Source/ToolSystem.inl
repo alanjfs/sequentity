@@ -169,6 +169,7 @@ void RotateSystem() {
     auto begin = [](auto entity, const auto& info, const auto& data) {
         Registry.reset<Selected>();
         Registry.assign<Selected>(info.target);
+        Registry.assign_or_replace<CanRecord>(entity);
     };
 
     auto preview = [](const auto& info, const auto& data) {
@@ -215,6 +216,7 @@ void ScaleSystem() {
     auto begin = [](auto entity, const auto& info, const auto& data) {
         Registry.reset<Selected>();
         Registry.assign<Selected>(info.target);
+        Registry.assign_or_replace<CanRecord>(entity);
     };
 
     auto preview = [](const auto& info, const auto& data) {
