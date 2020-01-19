@@ -27,6 +27,7 @@ Example usage of Sequentity.inl
 using namespace Magnum;
 using namespace Math::Literals;
 
+// Globals
 static entt::registry Registry;
 
 struct ApplicationState {
@@ -42,6 +43,10 @@ struct ApplicationState {
 
 };
 
+// Default, presumed-existing devices
+static const std::string_view DEVICE_MOUSE0 { "mouse0" };
+static const std::string_view DEVICE_KEYBOARD0 { "keyboard0" };
+
 // For readability only; this really is just one big cpp file
 #include "Utils.inl"
 #include "Theme.inl"
@@ -51,6 +56,24 @@ struct ApplicationState {
 #include "IntentSystem.inl"
 #include "ToolSystem.inl"
 #include "InputSystem.inl"
+
+// Globals
+static std::unordered_map<std::string_view, entt::entity> Devices;
+
+
+static auto lastDevice() -> entt::entity {
+    entt::entity last_device { entt::null };
+
+    Registry.view<Input::LastUsedDevice>().less([&](auto entity) {
+        last_device = entity;
+    });
+
+    if (last_device == entt::null) {
+        last_device = (*Devices.find(DEVICE_MOUSE0)).second;
+    }
+
+    return last_device;    
+}
 
 
 class Application : public Platform::Application {
@@ -63,6 +86,7 @@ public:
     void drawTransport();
     void drawCentralWidget();
     void drawEventEditor();
+    void drawDevices();
 
     void play();
     void step(int time);
@@ -75,6 +99,8 @@ public:
     void clear();  // Clear all events
 
 private:
+    void update();
+
     void onTimeChanged(); // Apply active events from Sequentity
     void onRecordingChanged(bool recording);
     void onNewTrack(entt::entity);
@@ -83,10 +109,10 @@ private:
     auto dpiScaling() const -> Vector2;
     void viewportEvent(ViewportEvent& event) override;
 
-
     void keyPressEvent(KeyEvent& event) override;
     void keyReleaseEvent(KeyEvent& event) override;
 
+    void anyMouseEvent();
     void mousePressEvent(MouseEvent& event) override;
     void mouseReleaseEvent(MouseEvent& event) override;
     void mouseMoveEvent(MouseMoveEvent& event) override;
@@ -100,11 +126,10 @@ private:
     Tool::Type _currentToolType { Tool::Type::Translate };
     Tool::Type _previousToolType { Tool::Type::Translate };
 
-    std::unordered_map<std::string_view, entt::entity> _devices;
-
     bool _showSequencer { true };
     bool _showMetrics { false };
     bool _showStyleEditor { false };
+    bool _showDevices { true };
 
     // Tool contexts are relative the currently active panel.
     // E.g. when working in the 3d view, a different set of tools
@@ -120,9 +145,6 @@ private:
     struct EditorContext {
         Tool::Type currentTool { Tool::Type::Select };
     } _editorContext;
-
-    // Experimental gamepad support
-    std::vector<entt::entity> _entities;
 };
 
 
@@ -188,6 +210,11 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     GL::Renderer::setBlendFunction(GL::Renderer::BlendFunction::SourceAlpha,
                                    GL::Renderer::BlendFunction::OneMinusSourceAlpha);
 
+    GL::Renderer::enable(GL::Renderer::Feature::Blending);
+    GL::Renderer::enable(GL::Renderer::Feature::ScissorTest);
+    GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
+    GL::Renderer::disable(GL::Renderer::Feature::DepthTest);
+
     this->setSwapInterval(1);  // VSync
 
     Registry.destroy(Registry.create());  // Make index 0 invalid
@@ -208,15 +235,12 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
     Registry.set<Sequentity::State>();
     Registry.set<ApplicationState>();
 
-    // Hardware singletons
-    _devices["mouse0"] = Registry.create();
-    _devices["mouse1"] = Registry.create();
-    _devices["wacomTouch0"] = Registry.create();
-    _devices["wacomTouch1"] = Registry.create();
-    _devices["wacomTouch2"] = Registry.create();
-
-    Registry.assign<Input::MouseDevice>(_devices["mouse0"]);
-    Registry.assign<Input::MouseDevice>(_devices["mouse1"]);
+    // Default device, everyone's got a plumbus in their home
+    Debug() << "Creating default mouse device..";
+    auto mouse0 = Registry.create();
+    Registry.assign<Input::Device>(mouse0, DEVICE_MOUSE0);
+    Registry.assign<Input::MouseDevice>(mouse0);
+    Devices[DEVICE_MOUSE0] = mouse0;
 
     setCurrentTool(Tool::Type::Translate);
 
@@ -226,7 +250,7 @@ Application::Application(const Arguments& arguments): Platform::Application{argu
 
 
 void Application::onNewTrack(entt::entity entity) {
-    Registry.assign<SortTracksIntent>(entity);
+    Registry.assign<Intent::SortTracks>(entity);
 }
 
 
@@ -282,12 +306,6 @@ void Application::setup() {
     Registry.assign<Color>(gray, ImColor::HSV(0.55f, 0.0f, 0.55f));
     Registry.assign<Orientation>(gray, 0.0_degf);
     Registry.assign<Position>(gray, 600, 400);
-
-    _entities.push_back(red);
-    _entities.push_back(green);
-    _entities.push_back(blue);
-    _entities.push_back(purple);
-    _entities.push_back(gray);
 }
 
 
@@ -467,11 +485,11 @@ void Application::drawCentralWidget() {
 
 void Application::onRecordingChanged(bool recording) {
     // TODO: Give user control over which devices become record-enabled
-    Registry.reset<Tool::Recording>();
+    Registry.reset<Tool::RecordIntent>();
 
     if (recording) {
-        Registry.view<Tool::Meta>().each([](auto entity, const auto& meta) {
-            Registry.assign<Tool::Recording>(entity);
+        Registry.view<Tool::Info>().each([](auto entity, const auto& meta) {
+            Registry.assign<Tool::RecordIntent>(entity);
         });
     }
 }
@@ -529,69 +547,83 @@ void Application::setCurrentTool(Tool::Type type) {
         device.dragging = false;
     });
 
-    auto& app = Registry.ctx<ApplicationState>();
-    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
-    auto& tool = device.assignedTool;
+    entt::entity device = lastDevice();
 
-    if (Registry.valid(tool)) {
-        Registry.destroy(tool);
+    // Wipe out existing tool
+    if (auto assigned = Registry.try_get<Input::AssignedTool>(device)) {
+        if (Registry.valid(assigned->entity)) {
+            Registry.destroy(assigned->entity);
+        }
     }
 
     Debug() << "Assigning a new tool..";
-    tool = Registry.create();
+    auto tool = Registry.create();
+    Registry.assign_or_replace<Input::AssignedTool>(device, tool);
+
+    auto& app = Registry.ctx<ApplicationState>();
 
     if (app.recording) {
-        Registry.assign<Tool::Recording>(tool);
+        Registry.assign<Tool::RecordIntent>(tool);
     }
 
     if (type == Tool::Type::Translate) {
         this->setCursor(Cursor::Crosshair);
-        Registry.assign<Tool::TranslateTool>(tool);
+        Registry.assign<Tool::Translate>(tool);
         Registry.assign<Tool::SetupIntent>(tool);
-        Registry.assign<Tool::Label>(tool, "Translate");
-        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
-        Registry.assign<Tool::Type>(tool, Tool::Type::Translate);
-        Registry.assign<Tool::Meta>(tool, "Translate", ImColor::HSV(0.0f, 0.75f, 0.75f), Tool::Type::Translate, Tool::TranslateEvent);
+        Registry.assign<Tool::Info>(tool,
+            "Translate",
+            ImColor::HSV(0.0f, 0.75f, 0.75f),
+            Tool::Type::Translate,
+            Tool::TranslateEvent
+        );
     }
 
     else if (type == Tool::Type::Rotate) {
 		this->setCursor(Cursor::Crosshair);
-        Registry.assign<Tool::RotateTool>(tool);
+        Registry.assign<Tool::Rotate>(tool);
         Registry.assign<Tool::SetupIntent>(tool);
-        Registry.assign<Tool::Label>(tool, "Rotate");
-        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.0f, 1.0f, 0.5f));
-        Registry.assign<Tool::Type>(tool, Tool::Type::Rotate);
-        Registry.assign<Tool::Meta>(tool, "Rotate", ImColor::HSV(0.33f, 0.75f, 0.75f), Tool::Type::Rotate, Tool::RotateEvent);
+        Registry.assign<Tool::Info>(tool,
+            "Rotate",
+            ImColor::HSV(0.33f, 0.75f, 0.75f),
+            Tool::Type::Rotate,
+            Tool::RotateEvent
+        );
     }
 
     else if (type == Tool::Type::Scale) {
 		this->setCursor(Cursor::Crosshair);
-        Registry.assign<Tool::ScaleTool>(tool);
+        Registry.assign<Tool::Scale>(tool);
         Registry.assign<Tool::SetupIntent>(tool);
-        Registry.assign<Tool::Label>(tool, "Scale");
-        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
-        Registry.assign<Tool::Type>(tool, Tool::Type::Scale);
-        Registry.assign<Tool::Meta>(tool, "Scale", ImColor::HSV(0.55f, 0.75f, 0.75f), Tool::Type::Scale, Tool::ScaleEvent);
+        Registry.assign<Tool::Info>(tool,
+            "Scale",
+            ImColor::HSV(0.55f, 0.75f, 0.75f),
+            Tool::Type::Scale,
+            Tool::ScaleEvent
+        );
     }
 
     else if (type == Tool::Type::Scrub) {
 		this->setCursor(Cursor::ResizeWE);
-        Registry.assign<Tool::ScrubTool>(tool);
+        Registry.assign<Tool::Scrub>(tool);
         Registry.assign<Tool::SetupIntent>(tool);
-        Registry.assign<Tool::Label>(tool, "Scrub");
-        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
-        Registry.assign<Tool::Type>(tool, Tool::Type::Scrub);
-        Registry.assign<Tool::Meta>(tool, "Scrub", ImColor::HSV(0.66f, 0.75f, 0.75f), Tool::Type::Scrub, Tool::ScrubEvent);
+        Registry.assign<Tool::Info>(tool,
+            "Scrub",
+            ImColor::HSV(0.66f, 0.75f, 0.75f),
+            Tool::Type::Scrub,
+            Tool::ScrubEvent
+        );
     }
 
     else if (type == Tool::Type::Select) {
 		this->setCursor(Cursor::Arrow);
-        Registry.assign<Tool::SelectTool>(tool);
+        Registry.assign<Tool::Select>(tool);
         Registry.assign<Tool::SetupIntent>(tool);
-        Registry.assign<Tool::Label>(tool, "Select");
-        Registry.assign<Tool::Color>(tool, ImColor::HSV(0.66f, 0.5f, 0.5f));
-        Registry.assign<Tool::Type>(tool, Tool::Type::Select);
-        Registry.assign<Tool::Meta>(tool, "Select", ImColor::HSV(0.66f, 0.75f, 0.75f), Tool::Type::Select, Tool::ScaleEvent);
+        Registry.assign<Tool::Info>(tool,
+            "Select",
+            ImColor::HSV(0.66f, 0.75f, 0.75f),
+            Tool::Type::Select,
+            Tool::ScaleEvent
+        );
     }
 
     else {
@@ -626,31 +658,44 @@ void Application::drawScene() {
             }
         }
 
-        if (Widgets::Button("Select (Q)", _currentToolType == Tool::Type::Select)) {
+        entt::entity device_entity = lastDevice();
+        Tool::Type active_type { Tool::Type::None };
+
+        if (auto assigned = Registry.try_get<Input::AssignedTool>(device_entity)) {
+            assert(Registry.valid(assigned->entity));
+            auto& tool = Registry.get<Tool::Info>(assigned->entity);
+            active_type = tool.type;
+        }
+
+        if (Widgets::Button("Select (Q)", active_type == Tool::Type::Select)) {
             _sceneContext.currentTool = Tool::Type::Select;
             setCurrentTool(Tool::Type::Select);
         }
 
-        if (Widgets::Button("Translate (W)", _currentToolType == Tool::Type::Translate)) {
+        if (Widgets::Button("Translate (W)", active_type == Tool::Type::Translate)) {
             _sceneContext.currentTool = Tool::Type::Translate;
             setCurrentTool(Tool::Type::Translate);
         }
 
-        if (Widgets::Button("Rotate (E)", _currentToolType == Tool::Type::Rotate)) {
+        if (Widgets::Button("Rotate (E)", active_type == Tool::Type::Rotate)) {
             _sceneContext.currentTool = Tool::Type::Rotate;
             setCurrentTool(Tool::Type::Rotate);
         }
 
-        if (Widgets::Button("Scale (R)", _currentToolType == Tool::Type::Scale)) {
+        if (Widgets::Button("Scale (R)", active_type == Tool::Type::Scale)) {
             _sceneContext.currentTool = Tool::Type::Scale;
             setCurrentTool(Tool::Type::Scale);
         }
 
-        if (Widgets::Button("Scrub (K)", _currentToolType == Tool::Type::Scrub)) {}
+        if (Widgets::Button("Scrub (K)", active_type == Tool::Type::Scrub)) {}
+
         if (Widgets::RecordButton("Record (T)", app.recording)) {
             app.recording ^= true;
             onRecordingChanged(app.recording);
         }
+
+        auto& device = Registry.get<Input::Device>(device_entity);
+        ImGui::Button(std::string(device.id).c_str());
 
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
                                                                            const auto& name,
@@ -692,7 +737,7 @@ void Application::drawScene() {
         });
 
         // Preview active tools
-        Registry.view<Tool::Data, Tool::Meta>().each([&](auto entity, const auto& data, const auto& meta) {
+        Registry.view<Tool::Data, Tool::Info>().each([&](auto entity, const auto& data, const auto& meta) {
             auto* drawlist = ImGui::GetWindowDrawList();
 
             drawlist->PathClear();
@@ -718,13 +763,149 @@ void Application::drawScene() {
 }
 
 
+inline ImVec4 operator*(const ImVec4& vec, const float mult) {
+    return ImVec4{ vec.x * mult, vec.y * mult, vec.z * mult, vec.w };
+}
+
+inline ImVec2 operator+(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x + value, vec.y + value };
+}
+
+inline ImVec2 operator+(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x + value.x, vec.y + value.y };
+}
+
+inline void operator-=(ImVec2& vec, const float value) {
+    vec.x -= value;
+    vec.y -= value;
+}
+
+inline ImVec2 operator-(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x - value, vec.y - value };
+}
+
+inline ImVec2 operator-(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x - value.x, vec.y - value.y };
+}
+
+inline ImVec2 operator*(const ImVec2& vec, const float value) {
+    return ImVec2{ vec.x * value, vec.y * value };
+}
+
+inline ImVec2 operator*(const ImVec2& vec, const ImVec2 value) {
+    return ImVec2{ vec.x * value.x, vec.y * value.y };
+}
+
+
+void Application::drawDevices() {
+    ImGui::Begin("Devices", &_showDevices);
+    {
+        Registry.view<Input::Device>().each([this](auto entity, const auto& device) {
+            if (auto mouse = Registry.try_get<Input::MouseDevice>(entity)) {
+                if (ImGui::CollapsingHeader("Mouse")) {
+                    ImGui::Text("Assigned Tool:"); ImGui::SameLine();
+                    if (auto assigned_tool = Registry.try_get<Input::AssignedTool>(entity)) {
+                        if (Registry.valid(assigned_tool->entity)) {
+                            auto& meta = Registry.get<Tool::Info>(assigned_tool->entity);
+                            ImGui::Text(meta.name);
+                        }
+                    } else {
+                        ImGui::Text("None");
+                    }
+
+                    ImGui::Text(std::string(device.id).c_str());
+                    ImGui::DragInt("Time", &mouse->time);
+                    ImGui::DragInt("Press Time", &mouse->pressTime);
+                    ImGui::DragInt("Release Time", &mouse->releaseTime);
+                    ImGui::DragInt2("Position", &mouse->position.x());
+                    ImGui::DragFloat2("Scroll", &mouse->scroll.x());
+
+                    bool buttons[3] {
+                        mouse->buttons & Input::MouseDevice::ButtonLeft ? true : false,
+                        mouse->buttons & Input::MouseDevice::ButtonMiddle ? true : false,
+                        mouse->buttons & Input::MouseDevice::ButtonRight ? true : false
+                    };
+
+                    ImGui::Checkbox("Left Button", &buttons[0]);
+                    ImGui::Checkbox("Middle Button", &buttons[1]);
+                    ImGui::Checkbox("Right Button", &buttons[2]);
+
+                    ImGui::Checkbox("Pressed", &mouse->pressed);
+                    ImGui::Checkbox("Dragging", &mouse->dragging);
+                    ImGui::Checkbox("Released", &mouse->released);
+
+                    ImGui::DragFloatRange2("Input Lag",
+                        &mouse->input_lag.x(),
+                        &mouse->input_lag.y(),
+                        0.01f, 16.0f, 0.1f,
+                        "Min: %.3f ms", "Max: %.3f ms"
+                    );
+
+                    const auto corner = ImGui::GetCursorPos();
+                    const auto window = ImGui::GetWindowPos();
+                    const auto scroll = ImVec2{ ImGui::GetScrollX(), ImGui::GetScrollY() };
+                    static const auto size = ImVec2{ 200, 200 };
+                    ImGui::InvisibleButton("##mouseArea", size);
+
+                    auto* drawlist = ImGui::GetWindowDrawList();
+                    drawlist->AddRectFilled(
+                        window - scroll + corner,
+                        window - scroll + corner + size,
+                        ImColor(0.0f, 0.0f, 0.0f, 0.5f)
+                    );
+
+                    const Vector2 screensize = Vector2(this->windowSize());
+                    const Vector2 normalised_position = Vector2(mouse->position) / screensize;
+                    const Vector2 denormalised_position = normalised_position * Vector2(size);
+
+                    drawlist->AddCircleFilled(
+                        window - scroll + corner + ImVec2{ denormalised_position.x(), denormalised_position.y() },
+                        10.0f,
+                        ImColor::HSV(0.0f, 0.0f, 1.0f)
+                    );
+                }
+            }
+
+            if (auto gamepad = Registry.try_get<Input::GamepadDevice>(entity)) {
+                if (ImGui::CollapsingHeader("Gamepad")) {
+                    ImGui::Text("Assigned Tool:"); ImGui::SameLine();
+                    if (auto assigned_tool = Registry.try_get<Input::AssignedTool>(entity)) {
+                        if (Registry.valid(assigned_tool->entity)) {
+                            auto& meta = Registry.get<Tool::Info>(assigned_tool->entity);
+                            ImGui::Text(meta.name);
+                        }
+                    } else {
+                        ImGui::Text("None");
+                    }
+                }
+            }
+        });
+    }
+    ImGui::End();
+}
+
+
 
 void Application::drawTool() {
     auto& sqty = Registry.ctx<Sequentity::State>();
     static bool windowEntered { false };
 
-    ImGui::Begin("Instrument Settings", nullptr);
+    ImGui::Begin("Tool", nullptr);
     {
+        ImGui::Text("Last Device"); ImGui::SameLine();
+        auto last_device = lastDevice();
+
+        if (Registry.valid(last_device)) {
+            auto& device = Registry.get<Input::Device>(last_device);
+            ImGui::Text(std::string(device.id).c_str());
+            // if (auto& assignedTool = Registry.has<Input::AssignedTool>(last_device)) {
+
+            // }
+            // const auto& [device, assigned_tool] = Registry.get<Input::Device, Input::AssignedTool>(last_device);
+            // ImGui::Text(std::string(device.id).c_str());
+        }
+
+        // Registry.get<Tool::Info>(deenv)
         // ImGui::Text(currentTool()->name());
 
         // entt::entity subject = currentTool()->subject();
@@ -774,10 +955,7 @@ void Application::drawEventEditor() {
 
 
 void Application::pollGamepad() {
-    const auto& sqty = Registry.ctx<Sequentity::State>();
-
-    // Work around the fact that we're working in absolute coords for position
-    static std::unordered_map<entt::entity, Position> start_pos;
+    static const std::string_view joystick1 { "joystick1" };
 
     // Derive activation from changes to button presses
     static std::unordered_map<int, bool> is_down {
@@ -788,8 +966,20 @@ void Application::pollGamepad() {
     };
 
     GLFWgamepadstate gamepad;
-    auto poll_button = [&](int button, entt::entity entity) {
+    auto poll_button = [&](int button) {
         if (gamepad.buttons[button]) {
+            if (Devices.count(joystick1) == 0) {
+                auto entity = Registry.create();
+
+                Devices[joystick1] = entity;
+                Registry.assign<Input::Device>(entity, joystick1);
+                Registry.assign<Input::GamepadDevice>(entity);
+            }
+
+            Registry.reset<Input::LastUsedDevice>();
+            Registry.assign<Input::LastUsedDevice>((*Devices.find(joystick1)).second);
+
+            // Internal logic
             const float right_trigger = gamepad.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER];
             const float left_x = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
             const float left_y = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
@@ -800,7 +990,6 @@ void Application::pollGamepad() {
             };
 
             if (!is_down[button]) {
-                start_pos[entity] = Registry.get<Position>(entity);
                 is_down[button] = true;
             }
 
@@ -815,25 +1004,19 @@ void Application::pollGamepad() {
 
     // Hardcode each button to one entity each
     if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepad)) {
-        poll_button(GLFW_GAMEPAD_BUTTON_A, _entities[0]);
-        poll_button(GLFW_GAMEPAD_BUTTON_B, _entities[1]);
-        poll_button(GLFW_GAMEPAD_BUTTON_X, _entities[2]);
-        poll_button(GLFW_GAMEPAD_BUTTON_Y, _entities[3]);
+        poll_button(GLFW_GAMEPAD_BUTTON_A);
+        poll_button(GLFW_GAMEPAD_BUTTON_B);
+        poll_button(GLFW_GAMEPAD_BUTTON_X);
+        poll_button(GLFW_GAMEPAD_BUTTON_Y);
     }
 }
 
-
-void Application::drawEvent() {
-    GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
-
-    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
+// One iteration of our simulation
+void Application::update() {
     auto& app = Registry.ctx<ApplicationState>();
+    auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
-    _imgui.newFrame();
-
-         if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
-    else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
-
+    pollGamepad();
     Input::System();
 
     if (app.playing) step(1);
@@ -846,42 +1029,40 @@ void Application::drawEvent() {
     }
 
     Tool::System();
-    IntentSystem();
+    Intent::System();
+}
+
+
+void Application::drawEvent() {
+    GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
+
+
+    _imgui.newFrame();
+
+         if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
+    else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
     drawCentralWidget();
-    drawTransport();
-    drawScene();
     drawTool();
 
+    this->update();
+
+    drawTransport();
+    drawScene();
     drawEventEditor();
 
-    if (_showMetrics) {
-        ImGui::ShowMetricsWindow(&_showMetrics);
-    }
+    if (_showMetrics) ImGui::ShowMetricsWindow(&_showMetrics);
+    if (_showDevices) this->drawDevices();
 
     if (_showStyleEditor) {
         Sequentity::ThemeEditor(&_showStyleEditor);
         ImGui::ShowStyleEditor();
     }
 
-    // _imgui.updateApplicationCursor(*this);
-
-    {
-        GL::Renderer::enable(GL::Renderer::Feature::Blending);
-        GL::Renderer::enable(GL::Renderer::Feature::ScissorTest);
-        GL::Renderer::disable(GL::Renderer::Feature::FaceCulling);
-        GL::Renderer::disable(GL::Renderer::Feature::DepthTest);
-
-        _imgui.drawFrame();
-
-        GL::Renderer::enable(GL::Renderer::Feature::DepthTest);
-        GL::Renderer::enable(GL::Renderer::Feature::FaceCulling);
-        GL::Renderer::disable(GL::Renderer::Feature::ScissorTest);
-        GL::Renderer::disable(GL::Renderer::Feature::Blending);
-    }
-
+    _imgui.drawFrame();
     swapBuffers();
 
+    auto& app = Registry.ctx<ApplicationState>();
     if (app.running) {
         redraw();
     }
@@ -903,6 +1084,7 @@ void Application::keyPressEvent(KeyEvent& event) {
     if (event.key() == KeyEvent::Key::Space)        { this->play(); }
     if (event.key() == KeyEvent::Key::F1)           _showMetrics ^= true;
     if (event.key() == KeyEvent::Key::F2)           _showStyleEditor ^= true;
+    if (event.key() == KeyEvent::Key::F3)           _showDevices ^= true;
     if (event.key() == KeyEvent::Key::F5)           _showSequencer ^= true;
 
     if (event.key() == KeyEvent::Key::K && !event.isRepeated()) setCurrentTool(Tool::Type::Scrub);
@@ -928,7 +1110,36 @@ void Application::keyReleaseEvent(KeyEvent& event) {
 }
 
 
+/* ========================================
+
+    Event handlers for mouse0 device
+
+   ======================================== */
+
+void Application::anyMouseEvent() {
+
+    // For demonstration purposes, we've already
+    // registered this device in the constructor
+    if (Devices.count(DEVICE_MOUSE0) == 0) {
+        auto entity = Registry.create();
+
+        Devices[DEVICE_MOUSE0] = entity;
+        Registry.assign<Input::Device>(entity, DEVICE_MOUSE0);
+        Registry.assign<Input::MouseDevice>(entity);
+    }
+
+    auto entity = (*Devices.find(DEVICE_MOUSE0)).second;
+    Registry.reset<Input::LastUsedDevice>();
+    Registry.assign<Input::LastUsedDevice>(entity);
+
+    auto& device = Registry.get<Input::MouseDevice>(entity);
+    device.time_of_event = std::chrono::high_resolution_clock::now();
+}
+
+
 void Application::mousePressEvent(MouseEvent& event) {
+    this->anyMouseEvent();
+
     auto& app = Registry.ctx<ApplicationState>();
 
     entt::entity entity { entt::null };
@@ -937,7 +1148,7 @@ void Application::mousePressEvent(MouseEvent& event) {
         break;
     };
 
-    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>((*Devices.find(DEVICE_MOUSE0)).second);
     device.pressed = true;
     device.lastPressed = entity;
     device.lastHovered = entity;
@@ -947,11 +1158,17 @@ void Application::mousePressEvent(MouseEvent& event) {
     device.releaseTime = app.time;
     device.position = event.position();
 
+    if (event.button() == MouseEvent::Button::Left)   device.buttons |= Input::MouseDevice::ButtonLeft;
+    if (event.button() == MouseEvent::Button::Right)  device.buttons |= Input::MouseDevice::ButtonRight;
+    if (event.button() == MouseEvent::Button::Middle) device.buttons |= Input::MouseDevice::ButtonMiddle;
+
     if (_imgui.handleMousePressEvent(event)) return;
 }
 
 
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
+    this->anyMouseEvent();
+
     auto& app = Registry.ctx<ApplicationState>();
 
     entt::entity entity { entt::null };
@@ -960,7 +1177,7 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
         break;
     };
 
-    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
+    auto& device = Registry.get<Input::MouseDevice>((*Devices.find(DEVICE_MOUSE0)).second);
     device.lastHovered = entity;
     device.changed = true;
 
@@ -971,15 +1188,27 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
     if (_imgui.handleMouseMoveEvent(event)) return;
 }
 
+
 void Application::mouseReleaseEvent(MouseEvent& event) {
-    auto& device = Registry.get<Input::MouseDevice>(_devices["mouse0"]);
+    this->anyMouseEvent();
+
+    auto& device = Registry.get<Input::MouseDevice>((*Devices.find(DEVICE_MOUSE0)).second);
 
     device.released = true;
+
+    if (event.button() == MouseEvent::Button::Left)   device.buttons ^= Input::MouseDevice::ButtonLeft;
+    if (event.button() == MouseEvent::Button::Right)  device.buttons ^= Input::MouseDevice::ButtonRight;
+    if (event.button() == MouseEvent::Button::Middle) device.buttons ^= Input::MouseDevice::ButtonMiddle;
 
     if (_imgui.handleMouseReleaseEvent(event)) return;
 }
 
 void Application::mouseScrollEvent(MouseScrollEvent& event) {
+    this->anyMouseEvent();
+
+    auto& device = Registry.get<Input::MouseDevice>((*Devices.find(DEVICE_MOUSE0)).second);
+    device.scroll = event.offset();
+
     if(_imgui.handleMouseScrollEvent(event)) {
         /* Prevent scrolling the page */
         event.setAccepted();

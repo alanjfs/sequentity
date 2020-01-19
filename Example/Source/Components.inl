@@ -31,11 +31,15 @@ struct InputPressure  { float strength; };
 struct InputPitch  { float angle; };
 struct InputYaw  { float angle; };
 
+
 // From e.g. Mouse or WASD keys
 struct InputPosition2D {
     Vector2i absolute;
     Vector2i relative;
     Vector2i delta;
+    Vector2i normalised;
+    unsigned int width;
+    unsigned int height;
 };
 
 struct InputPosition3D : Vector3i {

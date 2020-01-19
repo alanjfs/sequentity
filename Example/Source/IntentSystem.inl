@@ -1,29 +1,32 @@
-struct MoveIntent {
+namespace Intent {
+
+
+struct Move {
     int x, y;
 };
 
-struct RotateIntent {
+struct Rotate {
     int angle;
 };
 
-struct ScaleIntent {
+struct Scale {
     int scale;
 };
 
 
-struct SortTracksIntent {};
+struct SortTracks {};
 
 
-static void IntentSystem() {
-    Registry.view<MoveIntent, Position>().each([](const auto& intent, auto& position) {
+static void System() {
+    Registry.view<Move, Position>().each([](const auto& intent, auto& position) {
         position += Position{ intent.x, intent.y };
     });
 
-    Registry.view<RotateIntent, Orientation>().each([](const auto& intent, auto& orientation) {
+    Registry.view<Rotate, Orientation>().each([](const auto& intent, auto& orientation) {
         orientation += intent.angle;
     });
 
-    Registry.view<ScaleIntent, Size>().each([](const auto& intent, auto& size) {
+    Registry.view<Scale, Size>().each([](const auto& intent, auto& size) {
         size.x() += intent.scale;
         size.y() += intent.scale;
 
@@ -31,15 +34,17 @@ static void IntentSystem() {
         if (size.y() < 5) size.y() = 5;
     });
 
-    Registry.view<SortTracksIntent>().less([]() {
+    Registry.view<SortTracks>().less([]() {
         Registry.sort<Sequentity::Track>([](const entt::entity lhs, const entt::entity rhs) {
             return Registry.get<Index>(lhs) < Registry.get<Index>(rhs);
         });
     });
 
     // All intents have been taking into account
-    Registry.reset<MoveIntent>();
-    Registry.reset<RotateIntent>();
-    Registry.reset<ScaleIntent>();
-    Registry.reset<SortTracksIntent>();
+    Registry.reset<Move>();
+    Registry.reset<Rotate>();
+    Registry.reset<Scale>();
+    Registry.reset<SortTracks>();
+}
+
 }
