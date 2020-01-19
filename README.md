@@ -167,7 +167,6 @@ I made Sequentity for another (commercial) project, but made it open source in o
 
 Here are some of the things I'm actively looking for answers to and that you are welcome to strike up a dialog about in a new issue. (Thank you!)
 
-- **Who's responsible for managing memory?** Application data is associated with an event via a `void*`; it complicates memory management, as it involves a `new` and `delete` which is currently explicitly defined in the application. Error prone.
 - **Start, End and Beyond** Events are currently authored and stored in memory like they appear in the editor; but in your typical MIDI editor the original events don't look like this. Instead, events are standalone, immutable. An editor, like Cubase, then draws each consecutive start and end pair as a single bar for easy selection and edits. But do they store it in memory like this? I found it challenging to keep events coming in from the application together. For example, if I click and drag with the mouse, and then click with my Wacom tabled whilst still holding down the mouse, I would get a new click event in the midst of drag events, without any discernable way to distinguish the origin of each move event. MIDI doesn't have this problem, as an editor typically pre-selects from which device to expect input. But I would very much like to facilitate multiple mice, simultaneous Wacom tablets, eye trackers and anything capable of generating interesting events.
 - **How do we manage selection?** Sequentity manages the currently selected event using a raw pointer in its own `State` component, is there a better way? We couldn't store selection state in an event itself, as they aren't the ones aware of whether their owner has got them selected or not. It's outside of their responsibility. And besides, it would mean we would need to iterate over all events to deselect before selecting another one, what a waste.
 
@@ -267,7 +266,7 @@ And when you're fed up with entities and want to go home, then just:
 registry.clear();
 ```
 
-And that's about it as far as Sequentity goes, have a look at the [EnTT Wiki](https://github.com/skypjack/entt/wiki) for more about EnTT. Have fun!
+And that's about it as far as Sequentity goes, have a look at the [EnTT Wiki](https://github.com/skypjack/entt/wiki) along with [my notes](https://github.com/alanjfs/entt/wiki) for more about EnTT. Have fun!
 
 </details>
 
@@ -297,18 +296,10 @@ auto& channel = Sequentity::PushChannel(track, MyEventType); {
     channel.color = ImColor::HSV(0.33f, 0.5f, 0.75f);
 }
 
-// Don't forget to delete this
-auto* data = new MyEventData{ 5.0f };
-
 auto& event = Sequentity::PushEvent(channel); {
     event.time = 1;
     event.length = 50;
     event.color ImColor::HSV(0.66f, 0.5f, 0.75f);
-
-    // Application data, Sequentity won't touch it,
-    // which means it's your memory to manage
-    event.type = MyEventType;
-    event.data = static_cast<void*>(data);
 }
 
 // Draw it!
@@ -321,11 +312,10 @@ And here's how you query.
 const int time { 13 };
 Sequentity::Intersect(track, time, [](const auto& event) {
     if (event.type == MyEventType) {
-        auto& data = static_cast<MyEventData*>(event.data);
 
-        // Do something with it
-        event.time
-        event.length
+        // Do something interesting
+        event.time;
+        event.length;
     }
 });
 ```
