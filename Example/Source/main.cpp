@@ -43,10 +43,6 @@ struct ApplicationState {
 
 };
 
-// Default, presumed-existing devices
-static const std::string_view DEVICE_MOUSE0 { "mouse0" };
-static const std::string_view DEVICE_KEYBOARD0 { "keyboard0" };
-
 // For readability only; this really is just one big cpp file
 #include "Utils.inl"
 #include "Theme.inl"
@@ -59,6 +55,11 @@ static const std::string_view DEVICE_KEYBOARD0 { "keyboard0" };
 
 // Globals
 static std::unordered_map<std::string_view, entt::entity> Devices;
+
+// Default, presumed-existing devices
+static const std::string_view DEVICE_MOUSE0 { "mouse0" };
+static const std::string_view DEVICE_KEYBOARD0 { "keyboard0" };
+
 
 
 static auto lastDevice() -> entt::entity {
@@ -561,6 +562,7 @@ void Application::setCurrentTool(Tool::Type type) {
     Registry.assign_or_replace<Input::AssignedTool>(device, tool);
 
     auto& app = Registry.ctx<ApplicationState>();
+    Registry.assign<Tool::SetupIntent>(tool);
 
     if (app.recording) {
         Registry.assign<Tool::RecordIntent>(tool);
@@ -569,7 +571,6 @@ void Application::setCurrentTool(Tool::Type type) {
     if (type == Tool::Type::Translate) {
         this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::Translate>(tool);
-        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Info>(tool,
             "Translate",
             ImColor::HSV(0.0f, 0.75f, 0.75f),
@@ -581,7 +582,6 @@ void Application::setCurrentTool(Tool::Type type) {
     else if (type == Tool::Type::Rotate) {
 		this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::Rotate>(tool);
-        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Info>(tool,
             "Rotate",
             ImColor::HSV(0.33f, 0.75f, 0.75f),
@@ -593,7 +593,6 @@ void Application::setCurrentTool(Tool::Type type) {
     else if (type == Tool::Type::Scale) {
 		this->setCursor(Cursor::Crosshair);
         Registry.assign<Tool::Scale>(tool);
-        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Info>(tool,
             "Scale",
             ImColor::HSV(0.55f, 0.75f, 0.75f),
@@ -605,7 +604,6 @@ void Application::setCurrentTool(Tool::Type type) {
     else if (type == Tool::Type::Scrub) {
 		this->setCursor(Cursor::ResizeWE);
         Registry.assign<Tool::Scrub>(tool);
-        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Info>(tool,
             "Scrub",
             ImColor::HSV(0.66f, 0.75f, 0.75f),
@@ -617,7 +615,6 @@ void Application::setCurrentTool(Tool::Type type) {
     else if (type == Tool::Type::Select) {
 		this->setCursor(Cursor::Arrow);
         Registry.assign<Tool::Select>(tool);
-        Registry.assign<Tool::SetupIntent>(tool);
         Registry.assign<Tool::Info>(tool,
             "Select",
             ImColor::HSV(0.66f, 0.75f, 0.75f),
@@ -724,6 +721,7 @@ void Application::drawScene() {
             }
         });
 
+        // Visualise which entity is currently being influenced by a tool
         Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
             if (event.type == Tool::TranslateEvent) {
                 auto& [position, color] = Registry.get<Position, Color>(entity);
@@ -1054,11 +1052,11 @@ void Application::drawEvent() {
 
     drawCentralWidget();
     drawTool();
+    drawScene();
 
     this->update();
 
     drawTransport();
-    drawScene();
     drawEventEditor();
 
     if (_showMetrics) ImGui::ShowMetricsWindow(&_showMetrics);
