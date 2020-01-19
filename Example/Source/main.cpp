@@ -892,37 +892,47 @@ void Application::drawTool() {
 
     ImGui::Begin("Tool", nullptr);
     {
-        ImGui::Text("Last Device"); ImGui::SameLine();
+        ImGui::Text("Device:"); ImGui::SameLine();
         auto last_device = lastDevice();
+        entt::entity assigned_tool { entt::null };
 
         if (Registry.valid(last_device)) {
             auto& device = Registry.get<Input::Device>(last_device);
             ImGui::Text(std::string(device.id).c_str());
-            // if (auto& assignedTool = Registry.has<Input::AssignedTool>(last_device)) {
 
-            // }
-            // const auto& [device, assigned_tool] = Registry.get<Input::Device, Input::AssignedTool>(last_device);
-            // ImGui::Text(std::string(device.id).c_str());
+            if (auto tool = Registry.try_get<Input::AssignedTool>(last_device)) {
+                assert(Registry.valid(tool->entity));
+                assigned_tool = tool->entity;
+            }
         }
 
-        // Registry.get<Tool::Info>(deenv)
-        // ImGui::Text(currentTool()->name());
+        else {
+            ImGui::Text("None");
+        }
 
-        // entt::entity subject = currentTool()->subject();
-        // if (Registry.valid(subject)) {
-        //     ImGui::Text(Registry.get<Name>(subject).text);
-        // } else {
-        //     ImGui::Text("None");
-        // }
+        ImGui::Text("Tool:"); ImGui::SameLine();
+        if (Registry.valid(assigned_tool)) {
+            auto& info = Registry.get<Tool::Info>(assigned_tool);
+            ImGui::Text(info.name);
 
-        // ImGui::Text(Tool::tooltype_to_char(currentTool()->type()));
-        // ImGui::Text(Tool::eventtype_to_char(currentTool()->eventType()));
+            ImGui::Text("Target:"); ImGui::SameLine();
+            if (Registry.valid(info.target)) {
+                ImGui::Text(Registry.get<Name>(info.target).text);
+            } else {
+                ImGui::Text("None");
+            }
 
-        // auto& color = currentTool()->color();
-        // ImGui::ColorEdit4("Color", &color.x);
+            ImGui::Text("Tool Type:"); ImGui::SameLine();
+            ImGui::Text(Tool::tooltype_to_char(info.type));
+            ImGui::Text("Event Type:"); ImGui::SameLine();
+            ImGui::Text(Tool::eventtype_to_char(info.eventType));
 
-        // auto& input = currentTool()->input();
-        // ImGui::DragInt2("Input", &input.relative.x);
+            ImGui::ColorEdit4("Color", &info.color.x);
+        }
+
+        else {
+            ImGui::Text("None");
+        }
     }
     ImGui::End();
 }

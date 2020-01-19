@@ -82,7 +82,7 @@ struct WacomPenDevice {
 
 
 /**
- * @brief A Wacom Intuos multi-touch device, with 10 fingers as 100hz
+ * @brief A Wacom Feel (tm) multi-touch device, with 10 fingers as 100hz
  *
  *      _ 
  *     | |
@@ -126,12 +126,11 @@ struct GamepadDevice {
  * @brief Convert any device to the given tool
  *
  */
-static void device_to_tool(const WacomPenDevice& device, entt::entity tool, entt::entity target, bool animation = true);
-static void device_to_tool(const WacomTouchDevice& device, entt::entity tool, entt::entity target, bool animation = true);
-static void device_to_tool(const GamepadDevice& device, entt::entity tool, entt::entity target, bool animation = true);
-static void device_to_tool(const MouseDevice& device, entt::entity tool, entt::entity target, bool animation = true) {
+static void device_to_tool(const WacomPenDevice& device, entt::entity tool, bool animation = true);
+static void device_to_tool(const WacomTouchDevice& device, entt::entity tool, bool animation = true);
+static void device_to_tool(const GamepadDevice& device, entt::entity tool, bool animation = true);
+static void device_to_tool(const MouseDevice& device, entt::entity tool, bool animation = true) {
     auto& data = Registry.assign_or_replace<Tool::Data>(tool); {
-        data.target = target;
         data.time = device.time;
 
         if (animation) {
@@ -146,14 +145,6 @@ static void device_to_tool(const MouseDevice& device, entt::entity tool, entt::e
             data.endTime = device.time;
         }
     }
-
-    if (device.buttons & MouseDevice::ButtonLeft) {
-        Registry.assign_or_replace<Tool::PrimaryIntent>(tool);
-    }
-
-    if (device.buttons & MouseDevice::ButtonRight) {
-        Registry.assign_or_replace<Tool::SecondaryIntent>(tool);
-    }
 }
 
 
@@ -165,8 +156,22 @@ static void MouseInputSystem() {
         device._pressPosition = device.position;
 
         if (Registry.valid(device.lastPressed)) {
-            device_to_tool(device, tool, device.lastPressed);
+            device_to_tool(device, tool);
             Registry.assign<Tool::BeginIntent>(tool);
+
+            auto& info = Registry.get<Tool::Info>(tool);
+            info.target = device.lastPressed;
+
+            Registry.reset<Tool::PrimaryIntent>(tool);
+            Registry.reset<Tool::SecondaryIntent>(tool);
+
+            if (device.buttons & MouseDevice::ButtonLeft) {
+                Registry.assign<Tool::PrimaryIntent>(tool);
+            }
+
+            if (device.buttons & MouseDevice::ButtonRight) {
+                Registry.assign<Tool::SecondaryIntent>(tool);
+            }
         }
     };
 
@@ -174,7 +179,7 @@ static void MouseInputSystem() {
         auto& app = Registry.ctx<ApplicationState>();
 
         // May be updated by events (that we would override)
-        device_to_tool(device, tool, device.lastPressed);
+        device_to_tool(device, tool);
         Registry.assign<Tool::UpdateIntent>(tool, app.time);
     };
 
@@ -188,8 +193,11 @@ static void MouseInputSystem() {
 
         if (Registry.valid(device.lastHovered)) {
             auto& app = Registry.ctx<ApplicationState>();
-            device_to_tool(device, tool, device.lastHovered, false);
+            device_to_tool(device, tool, false);
             Registry.assign_or_replace<Tool::PreviewIntent>(tool);
+
+            auto& info = Registry.get<Tool::Info>(tool);
+            info.target = device.lastHovered;
         }
     };
 
@@ -199,26 +207,23 @@ static void MouseInputSystem() {
     };
 
     auto compute_input_lag = [](MouseDevice& device) {
-        // How much lag did we encounter?
-        if (device.changed) {
-            auto now = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::duration<float>>(
-                now - device.time_of_event
-            ).count() * 1'000.0f;
+        auto now = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::duration<float>>(
+            now - device.time_of_event
+        ).count() * 1'000.0f;
 
-            if (duration < device.input_lag.x()) {
-                device.input_lag.x() = duration;
-            }
+        if (duration < device.input_lag.x()) {
+            device.input_lag.x() = duration;
+        }
 
-            if (duration > device.input_lag.y()) {
-                device.input_lag.y() = duration;
-            }
+        if (duration > device.input_lag.y()) {
+            device.input_lag.y() = duration;
         }
     };
 
     // Mappings
     Registry.view<MouseDevice, AssignedTool>().each([&](auto& device, auto& tool) {
-        compute_input_lag(device);
+        if (device.changed) compute_input_lag(device);
 
         // NOTE: We can't trust the application to provide delta
         // positions, since inputs come in faster than we can update

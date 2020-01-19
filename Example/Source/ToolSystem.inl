@@ -52,6 +52,7 @@ struct PreviewIntent {};
 struct FinishIntent {};
 struct RecordIntent {};
 
+struct CanRecord {};
 
 // Tool mode intentions
 struct PrimaryIntent {};    // E.g. left mouse button
@@ -72,12 +73,11 @@ struct Info {
     ImVec4 color;
     Type type;
     EventType eventType;
+    entt::entity target;
 };
 
 
 struct Data {
-    entt::entity target;
-
     int time;
     int startTime;
     int endTime;
@@ -87,12 +87,12 @@ struct Data {
 
 
 static const char* tooltype_to_char(Type type) {
-    return type == Type::Select ? "Type::Select" :
-           type == Type::Translate ? "Type::Translate" :
-           type == Type::Rotate ? "Type::Rotate" :
-           type == Type::Scale ? "Type::Scale" :
-           type == Type::Scrub ? "Type::Scrub" :
-                                 "Type::Unknown";
+    return type == Type::Select ? "Select" :
+           type == Type::Translate ? "Translate" :
+           type == Type::Rotate ? "Rotate" :
+           type == Type::Scale ? "Scale" :
+           type == Type::Scrub ? "Scrub" :
+                                 "Unknown";
 }
 
 
@@ -122,40 +122,34 @@ void TranslateSystem() {
         Debug() << "Setting up Translate tool!";
     };
 
-    auto begin = [](const Data& data) {
+    auto begin = [](auto entity, const auto& info, const auto& data) {
         Registry.reset<Selected>();
-        Registry.assign<Selected>(data.target);
-
-        // Carry on during update
-        Registry.assign<UpdateIntent>(data.target, data.time);
+        Registry.assign<Selected>(info.target);
+        Registry.assign_or_replace<CanRecord>(entity);
     };
 
-    auto preview = [](const Data& data) {
-        Registry.assign_or_replace<Tooltip>(data.target, "Drag to translate");
+    auto preview = [](const Info& info, const Data& data) {
+        Registry.assign_or_replace<Tooltip>(info.target, "Drag to translate");
     };
 
-    auto update = [](const Data& data, const auto& intent) {
+    auto update = [](const Info& info, const Data& data, const auto& intent) {
         const InputPosition2D& position = (*data.positions.find(intent.time)).second;
 
-        if (!Registry.has<Intent::Move>(data.target)) {
-            Registry.assign<Intent::Move>(data.target, position.delta.x(), position.delta.y());
+        if (!Registry.has<Intent::Move>(info.target)) {
+            Registry.assign<Intent::Move>(info.target, position.delta.x(), position.delta.y());
         }
 
         else {
-            auto& move = Registry.get<Intent::Move>(data.target);
+            auto& move = Registry.get<Intent::Move>(info.target);
             move.x += position.delta.x();
             move.y += position.delta.y();
         }
     };
 
-    auto finish = [](const auto& data) {
-    };
-
     Registry.view<Translate, SetupIntent>().less(setup);
-    Registry.view<Translate, PrimaryIntent, BeginIntent, Data>().less(begin);
-    Registry.view<Translate, PrimaryIntent, PreviewIntent, Data>().less(preview);
-    Registry.view<Translate, PrimaryIntent, Data, UpdateIntent>().less(update);
-    Registry.view<Translate, PrimaryIntent, FinishIntent, Data>().less(finish);
+    Registry.view<Translate, PrimaryIntent, BeginIntent, Info, Data>().less(begin);
+    Registry.view<Translate, PrimaryIntent, PreviewIntent, Info, Data>().less(preview);
+    Registry.view<Translate, PrimaryIntent, Info, Data, UpdateIntent>().less(update);
 }
 
 
@@ -172,38 +166,35 @@ void TranslateSystem() {
  *
  */
 void RotateSystem() {
-    auto begin = [](const auto& data) {
+    auto begin = [](auto entity, const auto& info, const auto& data) {
         Registry.reset<Selected>();
-        Registry.assign<Selected>(data.target);
-
-        // Carry on during update
-        Registry.assign<UpdateIntent>(data.target, data.time);
+        Registry.assign<Selected>(info.target);
     };
 
-    auto preview = [](const auto& data) {
-        Registry.assign_or_replace<Tooltip>(data.target, "Drag to rotate");
+    auto preview = [](const auto& info, const auto& data) {
+        Registry.assign_or_replace<Tooltip>(info.target, "Drag to rotate");
     };
 
-    auto update = [](const auto& data, const auto& intent) {
+    auto update = [](const auto& info, const auto& data, const auto& intent) {
         const InputPosition2D& position = (*data.positions.find(intent.time)).second;
 
-        if (!Registry.has<Intent::Rotate>(data.target)) {
-            Registry.assign<Intent::Rotate>(data.target, position.delta.x());
+        if (!Registry.has<Intent::Rotate>(info.target)) {
+            Registry.assign<Intent::Rotate>(info.target, position.delta.x());
         
         // Intent may already have been added by an event or simultaneous tool
         } else {
-            auto& rotate = Registry.get<Intent::Rotate>(data.target);
+            auto& rotate = Registry.get<Intent::Rotate>(info.target);
             rotate.angle += position.delta.x();
         }
     };
 
-    auto finish = [](const auto& data) {
+    auto finish = [](const auto& info, const auto& data) {
     };
 
-    Registry.view<Rotate, PrimaryIntent, Data, BeginIntent>().less(begin);
-    Registry.view<Rotate, PrimaryIntent, Data, PreviewIntent>().less(preview);
-    Registry.view<Rotate, PrimaryIntent, Data, UpdateIntent>().less(update);
-    Registry.view<Rotate, PrimaryIntent, Data, FinishIntent>().less(finish);
+    Registry.view<Rotate, PrimaryIntent, Info, Data, BeginIntent>().less(begin);
+    Registry.view<Rotate, PrimaryIntent, Info, Data, PreviewIntent>().less(preview);
+    Registry.view<Rotate, PrimaryIntent, Info, Data, UpdateIntent>().less(update);
+    Registry.view<Rotate, PrimaryIntent, Info, Data, FinishIntent>().less(finish);
 }
 
 
@@ -221,37 +212,34 @@ void RotateSystem() {
  *
  */
 void ScaleSystem() {
-    auto begin = [](const auto& data) {
+    auto begin = [](auto entity, const auto& info, const auto& data) {
         Registry.reset<Selected>();
-        Registry.assign<Selected>(data.target);
-
-        // Carry on during update
-        Registry.assign<UpdateIntent>(data.target, data.time);
+        Registry.assign<Selected>(info.target);
     };
 
-    auto preview = [](const auto& data) {
-        Registry.assign_or_replace<Tooltip>(data.target, "Drag to scale");
+    auto preview = [](const auto& info, const auto& data) {
+        Registry.assign_or_replace<Tooltip>(info.target, "Drag to scale");
     };
 
-    auto update = [](const auto& data, const auto& intent) {
-        const auto& position = data.positions.at(intent.time);
+    auto update = [](const auto& info, const auto& data, const auto& intent) {
+        const auto& position = (*data.positions.find(intent.time)).second;
 
-        if (!Registry.has<Intent::Scale>(data.target)) {
-            Registry.assign<Intent::Scale>(data.target, position.delta.x());
+        if (!Registry.has<Intent::Scale>(info.target)) {
+            Registry.assign<Intent::Scale>(info.target, position.delta.x());
 
         } else {
-            auto& scale = Registry.get<Intent::Scale>(data.target);
+            auto& scale = Registry.get<Intent::Scale>(info.target);
             scale.scale += position.delta.x();
         }
     };
 
-    auto finish = [](const auto& data) {
+    auto finish = [](const auto& info, const auto& data) {
     };
 
-    Registry.view<Scale, PrimaryIntent, Data, BeginIntent>().less(begin);
-    Registry.view<Scale, PrimaryIntent, Data, PreviewIntent>().less(preview);
-    Registry.view<Scale, PrimaryIntent, Data, UpdateIntent>().less(update);
-    Registry.view<Scale, PrimaryIntent, Data, FinishIntent>().less(finish);
+    Registry.view<Scale, PrimaryIntent, Info, Data, BeginIntent>().less(begin);
+    Registry.view<Scale, PrimaryIntent, Info, Data, PreviewIntent>().less(preview);
+    Registry.view<Scale, PrimaryIntent, Info, Data, UpdateIntent>().less(update);
+    Registry.view<Scale, PrimaryIntent, Info, Data, FinishIntent>().less(finish);
 }
 
 
@@ -267,20 +255,20 @@ void ScaleSystem() {
  *
  */
 void RecordSystem() {
-    auto begin = [](auto entity, const auto& meta, const auto& data) {
-        auto [name, color] = Registry.get<Name, Color>(data.target);
+    auto begin = [](auto entity, const auto& info, const auto& data) {
+        auto [name, color] = Registry.get<Name, Color>(info.target);
 
-        if (!Registry.has<Sequentity::Track>(data.target)) {
-            Registry.assign<Sequentity::Track>(data.target, name.text, color);
+        if (!Registry.has<Sequentity::Track>(info.target)) {
+            Registry.assign<Sequentity::Track>(info.target, name.text, color);
         }
 
-        auto& track = Registry.get<Sequentity::Track>(data.target);
-        auto& channel = Sequentity::PushChannel(track, meta.eventType, { meta.name, meta.color });
+        auto& track = Registry.get<Sequentity::Track>(info.target);
+        auto& channel = Sequentity::PushChannel(track, info.eventType, { info.name, info.color });
         auto& event = Sequentity::PushEvent(channel, {
             data.startTime,
             1,          /* length= */
             color,
-            meta.eventType,
+            info.eventType,
 
             // Leave a breadcrumb for update and finish to latch onto
             entity
@@ -295,7 +283,7 @@ void RecordSystem() {
             for (auto& [type, channel] : track.channels) {
                 for (auto& event : channel.events) {
                     if (event.payload == entity) {
-                        event.length = data.endTime - data.startTime;
+                        event.length = data.endTime - data.startTime + 1;
                     }
                 }
             }
@@ -318,11 +306,37 @@ void RecordSystem() {
                 }
             }
         });
+
+        // TODO: This doesn't prevent against primary and secondary
+        //       intents being assigned simultaneously.
+        Registry.remove<CanRecord>(entity);
     };
 
-    Registry.view<RecordIntent, BeginIntent, Info, Data>().less(begin);
-    Registry.view<RecordIntent, UpdateIntent, Data>().less(update);
-    Registry.view<RecordIntent, FinishIntent>().less(finish);
+    Registry.view<RecordIntent, CanRecord, BeginIntent, Info, Data>().less(begin);
+    Registry.view<RecordIntent, CanRecord, UpdateIntent, Data>().less(update);
+    Registry.view<RecordIntent, CanRecord, FinishIntent>().less(finish);
+}
+
+
+void SelectSystem() {
+    auto begin = [](const auto& info) {
+        Registry.reset<Selected>();
+        Registry.assign<Selected>(info.target);
+    };
+
+    Registry.view<Scale, PrimaryIntent, Info, BeginIntent>().less(begin);
+}
+
+
+void ScrubSystem() {
+    auto update = [](const auto& data, const auto& intent) {
+        Debug() << "Scrubbing..";
+        const auto& position = (*data.positions.find(intent.time)).second;
+        auto& sqty = Registry.ctx<Sequentity::State>();
+        sqty.current_time += position.delta.x();
+    };
+
+    Registry.view<Scale, PrimaryIntent, Data, UpdateIntent>().less(update);
 }
 
 
@@ -330,8 +344,8 @@ void System() {
     TranslateSystem();
     RotateSystem();
     ScaleSystem();
-    // SelectSystem();
-    // ScrubSystem();
+    SelectSystem();
+    ScrubSystem();
     RecordSystem();
 
     Registry.reset<SetupIntent>();
@@ -339,9 +353,6 @@ void System() {
     Registry.reset<UpdateIntent>();
     Registry.reset<FinishIntent>();
     Registry.reset<PreviewIntent>();
-
-    Registry.reset<PrimaryIntent>();
-    Registry.reset<SecondaryIntent>();
 }
 
 }
