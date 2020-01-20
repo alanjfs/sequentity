@@ -811,42 +811,6 @@ void EventEditor(entt::registry& registry) {
     };
 
     /**
-     * @brief Filled bars in the background
-     *
-     *  __________________________________________________________
-     * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-     *  __________________________________________________________
-     * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-     *  __________________________________________________________
-     * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-     *  __________________________________________________________
-     * ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-     *
-     */
-    auto HorizontalGrid = [&]() {
-        float yMin = 0.0f;
-        float yMax = windowSize.y;
-        float xMin = 0.0f;
-        float xMax = windowSize.x;
-
-        xMin += A.x;
-        xMax += A.x;
-        yMin += A.y + state.pan[1];
-        yMax += A.y + state.pan[1];
-
-        bool isOdd = false;
-        for (float y = yMin; y < yMax; y += state.zoom[1]) {
-            isOdd ^= true;
-
-            if (isOdd) painter->AddRectFilled(
-                { xMin, y },
-                { xMax, y + state.zoom[1] - 1 },
-                ImColor(EditorTheme.alternate)
-            );
-        }
-    };
-
-    /**
      * @brief MIDI-like representation of on/off events
      *
      *   _______       _______________
@@ -903,7 +867,6 @@ void EventEditor(entt::registry& registry) {
             Header(track, cursor);
 
             // Give each event a unique ImGui ID
-            unsigned int type_count { 0 };
             unsigned int event_count { 0 };
 
             // Draw events

@@ -266,7 +266,7 @@ void RecordSystem() {
 
         auto& track = Registry.get<Sequentity::Track>(info.target);
         auto& channel = Sequentity::PushChannel(track, info.eventType, { info.name, info.color });
-        auto& event = Sequentity::PushEvent(channel, {
+        Sequentity::PushEvent(channel, {
             data.startTime,
             1,          /* length= */
             color,

@@ -126,9 +126,14 @@ struct GamepadDevice {
  * @brief Convert any device to the given tool
  *
  */
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
 static void device_to_tool(const WacomPenDevice& device, entt::entity tool, bool animation = true);
 static void device_to_tool(const WacomTouchDevice& device, entt::entity tool, bool animation = true);
 static void device_to_tool(const GamepadDevice& device, entt::entity tool, bool animation = true);
+#pragma clang diagnostic pop
+
 static void device_to_tool(const MouseDevice& device, entt::entity tool, bool animation = true) {
     auto& data = Registry.assign_or_replace<Tool::Data>(tool); {
         data.time = device.time;
@@ -150,8 +155,6 @@ static void device_to_tool(const MouseDevice& device, entt::entity tool, bool an
 
 static void MouseInputSystem() {
     auto press = [](MouseDevice& device, entt::entity tool) {
-        auto& app = Registry.ctx<ApplicationState>();
-
         device._positions.clear();
         device._pressPosition = device.position;
 
@@ -192,7 +195,6 @@ static void MouseInputSystem() {
         Registry.reset<Tool::Data>(tool);
 
         if (Registry.valid(device.lastHovered)) {
-            auto& app = Registry.ctx<ApplicationState>();
             device_to_tool(device, tool, false);
             Registry.assign_or_replace<Tool::PreviewIntent>(tool);
 
@@ -202,7 +204,6 @@ static void MouseInputSystem() {
     };
 
     auto release = [](MouseDevice& device, entt::entity tool) {
-        auto& app = Registry.ctx<ApplicationState>();
         Registry.assign_or_replace<Tool::FinishIntent>(tool);
     };
 

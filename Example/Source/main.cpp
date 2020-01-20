@@ -4,13 +4,14 @@ Example usage of Sequentity.inl
 
 */
 
+#pragma clang diagnostic ignored "-Wformat-security" // We don't care about such things
+
 // (Optional) Magnum prefers to have its imgui.h included first
 #include <Magnum/ImGuiIntegration/Context.hpp>
 
 #include <Sequentity.h>
 
 #include <string>
-#include <iostream>
 #include <unordered_map>
 
 #include <Magnum/Math/Color.h>
@@ -41,6 +42,19 @@ struct ApplicationState {
     int time { 0 };
     int previousTime { 0 };
 
+    enum Mode : int {
+        
+        // High-level mode, organise scene as a whole
+        Mode_Layout = 0,
+
+        // Edit initial state
+        Mode_Edit,
+
+        // Record animation
+        Mode_Pose
+    };
+
+    int mode { Mode_Pose };
 };
 
 // For readability only; this really is just one big cpp file
@@ -58,7 +72,6 @@ static std::unordered_map<std::string_view, entt::entity> Devices;
 
 // Default, presumed-existing devices
 static const std::string_view DEVICE_MOUSE0 { "mouse0" };
-static const std::string_view DEVICE_KEYBOARD0 { "keyboard0" };
 
 
 
@@ -347,15 +360,16 @@ void Application::stop() {
 void Application::onTimeChanged() {
     auto& app = Registry.ctx<ApplicationState>();
     auto& sqty = Registry.ctx<Sequentity::State>();
-    auto startTime = sqty.range[0];
-    auto current_time = sqty.current_time;
 
-    if (current_time <= startTime) {
+    auto startTime = sqty.range[0];
+    auto currentTime = sqty.current_time;
+
+    if (currentTime <= startTime) {
         reset();
     }
 
     else {
-        Sequentity::Intersect(Registry, current_time, [&](entt::entity subject,
+        Sequentity::Intersect(Registry, currentTime, [&](entt::entity subject,
                                                           const Sequentity::Channel& channel,
                                                           const Sequentity::Event& event) {
             entt::entity tool = event.payload;
@@ -365,7 +379,7 @@ void Application::onTimeChanged() {
             if (!Registry.has<Tool::Data>(tool)) return;
 
             auto& data = Registry.get<Tool::Data>(tool);
-            const auto local_time = current_time + (data.startTime - event.time);
+            const auto local_time = currentTime + (data.startTime - event.time);
 
             if (data.positions.count(local_time)) {
                 Registry.assign<Tool::UpdateIntent>(tool, local_time);
@@ -423,7 +437,7 @@ void Application::clear() {
                 }
             }
         }
-    });
+    }); 
 
     Registry.reset<Sequentity::Track>();
 
@@ -461,15 +475,8 @@ void Application::drawCentralWidget() {
         ImGui::DockBuilderAddNode(dockSpaceId, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockSpaceId, viewport->Size);
 
-        auto timelineHeight = 40.0f; // px, unscaled
-        auto shelfHeight = 40.0f;
-        auto outlinerWidth = 200.0f;
-        auto channelBoxWidth = 400.0f;
-
         ImGuiID center = dockSpaceId;
-        ImGuiID top = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.1f, nullptr, &center);
         ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.25f, nullptr, &center);
-        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
         ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.5f, nullptr, &center);
 
         ImGui::DockBuilderDockWindow("Transport", left);
@@ -706,7 +713,6 @@ void Application::drawScene() {
             auto imangle = static_cast<float>(orientation);
             auto imcolor = ImColor(color);
 
-            auto time = sqty.current_time + (app.playing ? 1 : 0);
             bool selected = Registry.has<Selected>(entity);
             Widgets::Graphic(name.text, impos, imsize, imangle, imcolor, selected);
 
@@ -724,11 +730,10 @@ void Application::drawScene() {
         // Visualise which entity is currently being influenced by a tool
         Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
             if (event.type == Tool::TranslateEvent) {
-                auto& [position, color] = Registry.get<Position, Color>(entity);
+                const auto& [position, color] = Registry.get<Position, Color>(entity);
                 auto scaledpos = Vector2(position) / dpiScaling();
                 if (!Registry.valid(event.payload)) return;
 				if (!Registry.has<Tool::Data>(event.payload)) return;
-                auto& data = Registry.get<Tool::Data>(event.payload);
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
             }
@@ -736,23 +741,37 @@ void Application::drawScene() {
 
         // Preview active tools
         Registry.view<Tool::Data, Tool::Info>().each([&](auto entity, const auto& data, const auto& meta) {
+            Debug() << app.time << data.startTime;
+            int distance { 0 };
+            const int ahead { 5 };  // How many frames ahead and after a clip to draw
+            if (app.time > data.startTime && app.time < data.endTime) distance = 0;
+            else if (app.time < data.startTime) distance = std::min(ahead, abs(app.time - data.startTime));
+            else if (app.time > data.startTime) distance = std::min(ahead, abs(data.endTime - app.time));
+            if (distance >= ahead) return;
+
+            float t = 1 - distance / float(ahead);
             auto* drawlist = ImGui::GetWindowDrawList();
 
             drawlist->PathClear();
 
+            ImVec4 color { meta.color };
+            color.w = t;
+
             ImVec2 tip { 0, 0 };
+            ImVec2 current { 0, 0 };
             for (const auto& [time, position] : data.positions) {
                 if (time < data.startTime || time > data.endTime) continue;
 
                 tip = ImVec2(Vector2(position.absolute) / this->dpiScaling());
                 drawlist->PathLineTo(tip);
+                if (app.time == time) current = tip;
             }
 
-            drawlist->PathStroke(ImColor(meta.color), false, 1.0f);
+            drawlist->PathStroke(ImColor(color), false, 1.0f);
             drawlist->AddCircleFilled(
-                tip,
+                current,
                 5.0f,
-                ImColor(meta.color)
+                ImColor(color)
             );
         });
     }
@@ -811,7 +830,8 @@ void Application::drawDevices() {
                         ImGui::Text("None");
                     }
 
-                    ImGui::Text(std::string(device.id).c_str());
+					const char* id = std::string(device.id).c_str();
+					ImGui::Text(id);
                     ImGui::DragInt("Time", &mouse->time);
                     ImGui::DragInt("Press Time", &mouse->pressTime);
                     ImGui::DragInt("Release Time", &mouse->releaseTime);
@@ -885,9 +905,6 @@ void Application::drawDevices() {
 
 
 void Application::drawTool() {
-    auto& sqty = Registry.ctx<Sequentity::State>();
-    static bool windowEntered { false };
-
     ImGui::Begin("Tool", nullptr);
     {
         ImGui::Text("Device:"); ImGui::SameLine();
@@ -896,7 +913,7 @@ void Application::drawTool() {
 
         if (Registry.valid(last_device)) {
             auto& device = Registry.get<Input::Device>(last_device);
-            ImGui::Text(std::string(device.id).c_str());
+			ImGui::Text(std::string(device.id).c_str());
 
             if (auto tool = Registry.try_get<Input::AssignedTool>(last_device)) {
                 assert(Registry.valid(tool->entity));
@@ -915,15 +932,18 @@ void Application::drawTool() {
 
             ImGui::Text("Target:"); ImGui::SameLine();
             if (Registry.valid(info.target)) {
-                ImGui::Text(Registry.get<Name>(info.target).text);
+				const char* name = Registry.get<Name>(info.target).text;
+				ImGui::Text(name);
             } else {
                 ImGui::Text("None");
             }
 
-            ImGui::Text("Tool Type:"); ImGui::SameLine();
-            ImGui::Text(Tool::tooltype_to_char(info.type));
+			const char* tooltype = Tool::tooltype_to_char(info.type);
+			const char* eventtype = Tool::eventtype_to_char(info.eventType);
+			ImGui::Text("Tool Type:"); ImGui::SameLine();
+            ImGui::Text(tooltype);
             ImGui::Text("Event Type:"); ImGui::SameLine();
-            ImGui::Text(Tool::eventtype_to_char(info.eventType));
+            ImGui::Text(eventtype);
 
             ImGui::ColorEdit4("Color", &info.color.x);
         }
@@ -988,7 +1008,6 @@ void Application::pollGamepad() {
             Registry.assign<Input::LastUsedDevice>((*Devices.find(joystick1)).second);
 
             // Internal logic
-            const float right_trigger = gamepad.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER];
             const float left_x = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
             const float left_y = gamepad.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
 
@@ -1021,11 +1040,22 @@ void Application::pollGamepad() {
 
 // One iteration of our simulation
 void Application::update() {
+    Input::System();
+    Tool::System();
+    Intent::System();
+}
+
+
+void Application::drawEvent() {
     auto& app = Registry.ctx<ApplicationState>();
     auto& sqty = Registry.ctx_or_set<Sequentity::State>();
 
-    pollGamepad();
-    Input::System();
+    GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
+
+    _imgui.newFrame();
+
+         if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
+    else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
 
     if (app.playing) step(1);
 
@@ -1036,26 +1066,11 @@ void Application::update() {
         onTimeChanged();
     }
 
-    Tool::System();
-    Intent::System();
-}
-
-
-void Application::drawEvent() {
-    GL::defaultFramebuffer.clear(GL::FramebufferClear::Color);
-
-
-    _imgui.newFrame();
-
-         if ( ImGui::GetIO().WantTextInput && !isTextInputActive()) startTextInput();
-    else if (!ImGui::GetIO().WantTextInput &&  isTextInputActive()) stopTextInput();
+    this->update();
 
     drawCentralWidget();
     drawTool();
     drawScene();
-
-    this->update();
-
     drawTransport();
     drawEventEditor();
 
@@ -1070,7 +1085,6 @@ void Application::drawEvent() {
     _imgui.drawFrame();
     swapBuffers();
 
-    auto& app = Registry.ctx<ApplicationState>();
     if (app.running) {
         redraw();
     }
