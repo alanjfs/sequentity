@@ -638,30 +638,26 @@ void Application::setCurrentTool(Tool::Type type) {
 
 
 void Application::drawScene() {
-    auto& sqty = Registry.ctx<Sequentity::State>();
-    auto& app = Registry.ctx<ApplicationState>();
-
-    static bool windowEntered { false };
-
     // This method is solely responsible for providing this component
     Registry.reset<Hovered>();
 
-    ImGui::Begin("3D Viewport", nullptr);
-    {
+    auto enter_exit_event = [this]() {
         // Determine whether cursor entered or exited the 3d scene view
+        static bool entered { false };
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) {
-            if (!windowEntered) {
-                Debug() << "Scene is entered";
-                setCurrentTool(_sceneContext.currentTool);
-                windowEntered = true;
+            if (!entered) {
+                this->setCurrentTool(_sceneContext.currentTool);
+                entered = true;
             }
         } else {
-            if (windowEntered) {
-                Debug() << "Scene is exited";
-                windowEntered = false;
+            if (entered) {
+                entered = false;
             }
         }
+    };
 
+    auto draw_tool_buttons = [this]() {
+        auto& app = Registry.ctx<ApplicationState>();
         entt::entity device_entity = lastDevice();
         Tool::Type active_type { Tool::Type::None };
 
@@ -673,41 +669,43 @@ void Application::drawScene() {
 
         if (Widgets::Button("Select (Q)", active_type == Tool::Type::Select)) {
             _sceneContext.currentTool = Tool::Type::Select;
-            setCurrentTool(Tool::Type::Select);
+            this->setCurrentTool(Tool::Type::Select);
         }
 
         if (Widgets::Button("Translate (W)", active_type == Tool::Type::Translate)) {
             _sceneContext.currentTool = Tool::Type::Translate;
-            setCurrentTool(Tool::Type::Translate);
+            this->setCurrentTool(Tool::Type::Translate);
         }
 
         if (Widgets::Button("Rotate (E)", active_type == Tool::Type::Rotate)) {
             _sceneContext.currentTool = Tool::Type::Rotate;
-            setCurrentTool(Tool::Type::Rotate);
+            this->setCurrentTool(Tool::Type::Rotate);
         }
 
         if (Widgets::Button("Scale (R)", active_type == Tool::Type::Scale)) {
             _sceneContext.currentTool = Tool::Type::Scale;
-            setCurrentTool(Tool::Type::Scale);
+            this->setCurrentTool(Tool::Type::Scale);
         }
 
         if (Widgets::Button("Scrub (K)", active_type == Tool::Type::Scrub)) {}
 
         if (Widgets::RecordButton("Record (T)", app.recording)) {
             app.recording ^= true;
-            onRecordingChanged(app.recording);
+            this->onRecordingChanged(app.recording);
         }
 
         auto& device = Registry.get<Input::Device>(device_entity);
         ImGui::Button(std::string(device.id).c_str());
+    };
 
+    auto draw_squares = [this]() {
         Registry.view<Name, Position, Orientation, Color, Size>().each([&](auto entity,
                                                                            const auto& name,
                                                                            const auto& position,
                                                                            const auto& orientation,
                                                                            const auto& color,
                                                                            const auto& size) {
-            auto scaledpos = Vector2(position) / dpiScaling();
+            auto scaledpos = Vector2(position) / this->dpiScaling();
             auto imsize = ImVec2((float)size.x(), (float)size.y());
             auto impos = ImVec2(scaledpos);
             auto imangle = static_cast<float>(orientation);
@@ -726,22 +724,27 @@ void Application::drawScene() {
                 ImGui::EndTooltip();
             }
         });
+    };
 
-        // Visualise which entity is currently being influenced by a tool
-        Sequentity::Intersect(Registry, sqty.current_time, [&](auto entity, auto& event) {
+    auto draw_active_square = [this]() {
+        const auto& app = Registry.ctx<ApplicationState>();
+
+        Sequentity::Intersect(Registry, app.time, [&](auto entity, auto& event) {
             if (event.type == Tool::TranslateEvent) {
                 const auto& [position, color] = Registry.get<Position, Color>(entity);
-                auto scaledpos = Vector2(position) / dpiScaling();
+                auto scaledpos = Vector2(position) / this->dpiScaling();
                 if (!Registry.valid(event.payload)) return;
-				if (!Registry.has<Tool::Data>(event.payload)) return;
+                if (!Registry.has<Tool::Data>(event.payload)) return;
                 auto impos = ImVec2(scaledpos.x(), scaledpos.y());
                 Widgets::Cursor(impos, color);
             }
         });
+    };
 
-        // Preview active tools
+    auto draw_active_tool = [this]() {
+        const auto& app = Registry.ctx<ApplicationState>();
+
         Registry.view<Tool::Data, Tool::Info>().each([&](auto entity, const auto& data, const auto& meta) {
-            Debug() << app.time << data.startTime;
             int distance { 0 };
             const int ahead { 5 };  // How many frames ahead and after a clip to draw
             if (app.time > data.startTime && app.time < data.endTime) distance = 0;
@@ -774,6 +777,15 @@ void Application::drawScene() {
                 ImColor(color)
             );
         });
+    };
+
+    ImGui::Begin("3D Viewport", nullptr);
+    {
+        enter_exit_event();
+        draw_tool_buttons();
+        draw_squares();
+        draw_active_square();
+        draw_active_tool();
     }
 
     ImGui::End();
@@ -1162,8 +1174,6 @@ void Application::anyMouseEvent() {
 void Application::mousePressEvent(MouseEvent& event) {
     this->anyMouseEvent();
 
-    auto& app = Registry.ctx<ApplicationState>();
-
     entt::entity entity { entt::null };
     for (auto hovered : Registry.view<Hovered>()) {
         entity = hovered;
@@ -1175,9 +1185,6 @@ void Application::mousePressEvent(MouseEvent& event) {
     device.lastPressed = entity;
     device.lastHovered = entity;
 
-    device.time = app.time;
-    device.pressTime = app.time;
-    device.releaseTime = app.time;
     device.position = event.position();
 
     if (event.button() == MouseEvent::Button::Left)   device.buttons |= Input::MouseDevice::ButtonLeft;
@@ -1191,8 +1198,6 @@ void Application::mousePressEvent(MouseEvent& event) {
 void Application::mouseMoveEvent(MouseMoveEvent& event) {
     this->anyMouseEvent();
 
-    auto& app = Registry.ctx<ApplicationState>();
-
     entt::entity entity { entt::null };
     for (auto hovered : Registry.view<Hovered>()) {
         entity = hovered;
@@ -1202,9 +1207,6 @@ void Application::mouseMoveEvent(MouseMoveEvent& event) {
     auto& device = Registry.get<Input::MouseDevice>((*Devices.find(DEVICE_MOUSE0)).second);
     device.lastHovered = entity;
     device.changed = true;
-
-    device.time = app.time;
-    device.releaseTime = app.time;
     device.position = event.position();
 
     if (_imgui.handleMouseMoveEvent(event)) return;

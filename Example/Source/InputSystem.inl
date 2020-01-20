@@ -154,9 +154,17 @@ static void device_to_tool(const MouseDevice& device, entt::entity tool, bool an
 
 
 static void MouseInputSystem() {
-    auto press = [](MouseDevice& device, entt::entity tool) {
+    // Copy state of application by the time of calling,
+    // to ensure time remains true throughout, despite the
+    // potential of threads and callbacks.
+    const auto app = Registry.ctx<ApplicationState>();
+
+    auto press = [&app](MouseDevice& device, entt::entity tool) {
         device._positions.clear();
         device._pressPosition = device.position;
+
+        device.pressTime = app.time;
+        device.releaseTime = app.time;
 
         if (Registry.valid(device.lastPressed)) {
             device_to_tool(device, tool);
@@ -178,8 +186,8 @@ static void MouseInputSystem() {
         }
     };
 
-    auto drag_entity = [](MouseDevice& device, entt::entity tool) {
-        auto& app = Registry.ctx<ApplicationState>();
+    auto drag_entity = [&app](MouseDevice& device, entt::entity tool) {
+        device.releaseTime = app.time;
 
         // May be updated by events (that we would override)
         device_to_tool(device, tool);
@@ -225,6 +233,8 @@ static void MouseInputSystem() {
     // Mappings
     Registry.view<MouseDevice, AssignedTool>().each([&](auto& device, auto& tool) {
         if (device.changed) compute_input_lag(device);
+
+        device.time = app.time;
 
         // NOTE: We can't trust the application to provide delta
         // positions, since inputs come in faster than we can update
