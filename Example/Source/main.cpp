@@ -4,8 +4,6 @@ Example usage of Sequentity.inl
 
 */
 
-#pragma clang diagnostic ignored "-Wformat-security" // We don't care about such things
-
 // (Optional) Magnum prefers to have its imgui.h included first
 #include <Magnum/ImGuiIntegration/Context.hpp>
 
@@ -720,7 +718,7 @@ void Application::drawScene() {
 
             if (Registry.has<Tooltip>(entity)) {
                 ImGui::BeginTooltip();
-                ImGui::SetTooltip(Registry.get<Tooltip>(entity).text);
+                ImGui::SetTooltip("%s", Registry.get<Tooltip>(entity).text);
                 ImGui::EndTooltip();
             }
         });
@@ -832,18 +830,18 @@ void Application::drawDevices() {
         Registry.view<Input::Device>().each([this](auto entity, const auto& device) {
             if (auto mouse = Registry.try_get<Input::MouseDevice>(entity)) {
                 if (ImGui::CollapsingHeader("Mouse")) {
-                    ImGui::Text("Assigned Tool:"); ImGui::SameLine();
+                    ImGui::TextUnformatted("Assigned Tool:"); ImGui::SameLine();
                     if (auto assigned_tool = Registry.try_get<Input::AssignedTool>(entity)) {
                         if (Registry.valid(assigned_tool->entity)) {
                             auto& meta = Registry.get<Tool::Info>(assigned_tool->entity);
-                            ImGui::Text(meta.name);
+                            ImGui::TextUnformatted(meta.name);
                         }
                     } else {
-                        ImGui::Text("None");
+                        ImGui::TextUnformatted("None");
                     }
 
 					const char* id = std::string(device.id).c_str();
-					ImGui::Text(id);
+					ImGui::TextUnformatted(id);
                     ImGui::DragInt("Time", &mouse->time);
                     ImGui::DragInt("Press Time", &mouse->pressTime);
                     ImGui::DragInt("Release Time", &mouse->releaseTime);
@@ -898,14 +896,14 @@ void Application::drawDevices() {
 
             if (auto gamepad = Registry.try_get<Input::GamepadDevice>(entity)) {
                 if (ImGui::CollapsingHeader("Gamepad")) {
-                    ImGui::Text("Assigned Tool:"); ImGui::SameLine();
+                    ImGui::TextUnformatted("Assigned Tool:"); ImGui::SameLine();
                     if (auto assigned_tool = Registry.try_get<Input::AssignedTool>(entity)) {
                         if (Registry.valid(assigned_tool->entity)) {
                             auto& meta = Registry.get<Tool::Info>(assigned_tool->entity);
-                            ImGui::Text(meta.name);
+                            ImGui::TextUnformatted(meta.name);
                         }
                     } else {
-                        ImGui::Text("None");
+                        ImGui::TextUnformatted("None");
                     }
                 }
             }
@@ -919,13 +917,13 @@ void Application::drawDevices() {
 void Application::drawTool() {
     ImGui::Begin("Tool", nullptr);
     {
-        ImGui::Text("Device:"); ImGui::SameLine();
+        ImGui::TextUnformatted("Device:"); ImGui::SameLine();
         auto last_device = lastDevice();
         entt::entity assigned_tool { entt::null };
 
         if (Registry.valid(last_device)) {
             auto& device = Registry.get<Input::Device>(last_device);
-			ImGui::Text(std::string(device.id).c_str());
+			ImGui::TextUnformatted(std::string(device.id).c_str());
 
             if (auto tool = Registry.try_get<Input::AssignedTool>(last_device)) {
                 assert(Registry.valid(tool->entity));
@@ -934,34 +932,34 @@ void Application::drawTool() {
         }
 
         else {
-            ImGui::Text("None");
+            ImGui::TextUnformatted("None");
         }
 
-        ImGui::Text("Tool:"); ImGui::SameLine();
+        ImGui::TextUnformatted("Tool:"); ImGui::SameLine();
         if (Registry.valid(assigned_tool)) {
             auto& info = Registry.get<Tool::Info>(assigned_tool);
-            ImGui::Text(info.name);
+            ImGui::TextUnformatted(info.name);
 
-            ImGui::Text("Target:"); ImGui::SameLine();
+            ImGui::TextUnformatted("Target:"); ImGui::SameLine();
             if (Registry.valid(info.target)) {
 				const char* name = Registry.get<Name>(info.target).text;
-				ImGui::Text(name);
+				ImGui::TextUnformatted(name);
             } else {
-                ImGui::Text("None");
+                ImGui::TextUnformatted("None");
             }
 
 			const char* tooltype = Tool::tooltype_to_char(info.type);
 			const char* eventtype = Tool::eventtype_to_char(info.eventType);
-			ImGui::Text("Tool Type:"); ImGui::SameLine();
-            ImGui::Text(tooltype);
-            ImGui::Text("Event Type:"); ImGui::SameLine();
-            ImGui::Text(eventtype);
+			ImGui::TextUnformatted("Tool Type:"); ImGui::SameLine();
+            ImGui::TextUnformatted(tooltype);
+            ImGui::TextUnformatted("Event Type:"); ImGui::SameLine();
+            ImGui::TextUnformatted(eventtype);
 
             ImGui::ColorEdit4("Color", &info.color.x);
         }
 
         else {
-            ImGui::Text("None");
+            ImGui::TextUnformatted("None");
         }
     }
     ImGui::End();
