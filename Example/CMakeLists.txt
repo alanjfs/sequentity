@@ -12,13 +12,14 @@ else()
 endif()
 
 include_directories(
-    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/include
-    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/include/MagnumExternal/OpenGL
+    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vsclang-static/${CONFIGURATION}/include
+    ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vsclang-static/${CONFIGURATION}/include/MagnumExternal/OpenGL
     ${CMAKE_SOURCE_DIR}/External/magnum-singles
     ${CMAKE_SOURCE_DIR}/External/imgui/x64-windows/include
     ${CMAKE_SOURCE_DIR}/External/entt
     ${CMAKE_SOURCE_DIR}/../
 )
+
 
 link_directories(
     ${CMAKE_SOURCE_DIR}/External/magnum/x64-windows-vs2015-static/${CONFIGURATION}/lib
@@ -64,7 +65,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /MDd /Zi /EHsc)
 else()
     target_compile_definitions(${PROJECT_NAME} PRIVATE -DNDEBUG)
-    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /EHsc /Od /wd4251 /MP /MD)
+    target_compile_options(${PROJECT_NAME} PRIVATE /std:c++17 /EHsc /Od /wd4251 /MD)
 endif()
 
 # Magnum suffixes libraries for debug builds
