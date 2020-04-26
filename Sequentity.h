@@ -372,6 +372,7 @@ static struct EditorTheme_ {
     float radius { 0.0f };
     float spacing { 1.0f };
 	float head_tail_handle_width { 10.0f };
+    float active_clip_raise { 5.0f };
 
 } EditorTheme;
 
@@ -930,7 +931,7 @@ void EventEditor(entt::registry& registry) {
                             );
 
                         event.enabled = !event.removed;
-                        target_height = 5.0f;
+                        target_height = EditorTheme.active_clip_raise / 2;
                     }
                 	#pragma endregion EventHead
 
@@ -956,7 +957,7 @@ void EventEditor(entt::registry& registry) {
                             );
                     	
                         event.enabled = !event.removed;
-                        target_height = 5.0f;
+                        target_height = EditorTheme.active_clip_raise / 2;
                     }
 					#pragma endregion EventTail
                 	
@@ -995,7 +996,7 @@ void EventEditor(entt::registry& registry) {
 	                    );
 
 	                    event.enabled = !event.removed;
-	                    target_height = 5.0f;
+	                    target_height = EditorTheme.active_clip_raise;
                     }
 					#pragma endregion EventBody
 
