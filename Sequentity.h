@@ -373,6 +373,7 @@ static struct EditorTheme_ {
     float spacing { 1.0f };
 	float head_tail_handle_width { 10.0f };
     float active_clip_raise { 5.0f };
+    float active_clip_raise_shadow_movement { 0.25f };
 
 } EditorTheme;
 
@@ -1005,9 +1006,10 @@ void EventEditor(entt::registry& registry) {
                     tail_pos -= event.height;
 
                     const int shadow = 2;
+                	float shadow_movement = event.height * (1.0f + EditorTheme.active_clip_raise_shadow_movement);
                     painter->AddRectFilled(
-	                    cursor + pos + shadow + event.height * 1.25f,
-	                    cursor + pos + size + shadow + event.height * 1.25f,
+	                    cursor + pos + shadow + shadow_movement,
+                        cursor + pos + size + shadow + shadow_movement,
 	                    ImColor::HSV(0.0f, 0.0f, 0.0f, 0.3f), EditorTheme.radius
                     );
 
