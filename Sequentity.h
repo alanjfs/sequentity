@@ -353,21 +353,22 @@ static struct TimelineTheme_ {
 
 
 static struct EditorTheme_ {
-    ImVec4 background    { ImColor::HSV(0.0f, 0.00f, 0.651f) };
-    ImVec4 alternate     { ImColor::HSV(0.0f, 0.00f, 0.0f, 0.02f) };
-    ImVec4 text          { ImColor::HSV(0.0f, 0.00f, 0.950f) };
-    ImVec4 mid           { ImColor::HSV(0.0f, 0.00f, 0.600f) };
-    ImVec4 dark          { ImColor::HSV(0.0f, 0.00f, 0.498f) };
-    ImVec4 accent        { ImColor::HSV(0.0f, 0.75f, 0.750f) };
-    ImVec4 accent_light  { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
-    ImVec4 accent_dark   { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
-    ImVec4 selection     { ImColor::HSV(0.0f, 0.0f, 1.0f) };
-    ImVec4 outline       { ImColor::HSV(0.0f, 0.0f, 0.1f) };
-    ImVec4 track         { ImColor::HSV(0.0f, 0.0f, 0.6f) };
+    ImVec4 background      { ImColor::HSV(0.0f, 0.00f, 0.651f) };
+    ImVec4 alternate       { ImColor::HSV(0.0f, 0.00f, 0.0f, 0.02f) };
+    ImVec4 text            { ImColor::HSV(0.0f, 0.00f, 0.950f) };
+    ImVec4 mid             { ImColor::HSV(0.0f, 0.00f, 0.600f) };
+    ImVec4 dark            { ImColor::HSV(0.0f, 0.00f, 0.498f) };
+    ImVec4 accent          { ImColor::HSV(0.0f, 0.75f, 0.750f) };
+    ImVec4 accent_light    { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
+    ImVec4 accent_dark     { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
+    ImVec4 selection       { ImColor::HSV(0.0f, 0.0f, 1.0f) };
+    ImVec4 outline         { ImColor::HSV(0.0f, 0.0f, 0.1f) };
+    ImVec4 track           { ImColor::HSV(0.0f, 0.0f, 0.6f) };
+    ImVec4 head_tail_hover { ImColor::HSV(0.0f, 0.0f, 1.0f, 0.25f) };
 
-    ImVec4 start_time    { ImColor::HSV(0.33f, 0.0f, 0.25f) };
-    ImVec4 current_time  { ImColor::HSV(0.6f, 0.5f, 0.5f) };
-    ImVec4 end_time      { ImColor::HSV(0.0f, 0.0f, 0.25f) };
+    ImVec4 start_time      { ImColor::HSV(0.33f, 0.0f, 0.25f) };
+    ImVec4 current_time    { ImColor::HSV(0.6f, 0.5f, 0.5f) };
+    ImVec4 end_time        { ImColor::HSV(0.0f, 0.0f, 0.25f) };
     
     float radius { 0.0f };
     float spacing { 1.0f };
@@ -1052,7 +1053,7 @@ void EventEditor(entt::registry& registry) {
                         painter->AddRectFilled(
                             cursor + pos,
                             cursor + pos + head_tail_size,
-                            ImColor(255, 255, 255, 100), EditorTheme.radius
+                            ImColor(EditorTheme.head_tail_hover), EditorTheme.radius
                         );
                         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
                     }
@@ -1062,7 +1063,7 @@ void EventEditor(entt::registry& registry) {
                         painter->AddRectFilled(
                             cursor + tail_pos,
                             cursor + tail_pos + head_tail_size,
-                            ImColor(255, 255, 255, 100), EditorTheme.radius
+                            ImColor(EditorTheme.head_tail_hover), EditorTheme.radius
                         );
                         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
                     }
@@ -1389,6 +1390,7 @@ void ThemeEditor(bool* p_open) {
             ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.x);
             ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.x);
             ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.x);
+            ImGui::ColorEdit4("head_tail_hover##editor", &EditorTheme.head_tail_hover.x);
 
             ImGui::ColorEdit4("start_time##editor", &EditorTheme.start_time.x);
             ImGui::ColorEdit4("current_time##editor", &EditorTheme.current_time.x);
