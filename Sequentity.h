@@ -371,7 +371,7 @@ static struct EditorTheme_ {
     
     float radius { 0.0f };
     float spacing { 1.0f };
-	float head_tail_handle_width { 10.0f };
+	ImVec2 head_tail_handle_width { 10.0f, 100.0f };
     float active_clip_raise { 5.0f };
     float active_clip_raise_shadow_movement { 0.25f };
 
@@ -886,7 +886,13 @@ void EventEditor(entt::registry& registry) {
                     ImVec2 pos { time_to_px(event.time), 0.0f };
                     ImVec2 size { time_to_px(event.length), state.zoom[1] };
 
-                	ImVec2 head_tail_size{ EditorTheme.head_tail_handle_width, size.y };
+                	ImVec2 head_tail_size
+                	{
+                		std::min(EditorTheme.head_tail_handle_width.y,
+                			std::max(EditorTheme.head_tail_handle_width.x, size.x / 6)
+                        ),
+                		size.y
+                	};
                     ImVec2 tail_pos{ pos.x + size.x - head_tail_size.x , pos.y };
 
                     ImVec2 body_pos{ pos.x + head_tail_size.x, pos.y };
@@ -1390,9 +1396,9 @@ void ThemeEditor(bool* p_open) {
         	
             ImGui::DragFloat("radius##editor", &EditorTheme.radius);
             ImGui::DragFloat("spacing##editor", &EditorTheme.spacing);
-            ImGui::DragFloat("head_tail_handle_width##editor", &EditorTheme.head_tail_handle_width);
-            ImGui::DragFloat("active_clip_raise##editor", &EditorTheme.active_clip_raise);
-            ImGui::DragFloat("active_clip_raise_shadow_movement##editor", &EditorTheme.active_clip_raise_shadow_movement);
+            ImGui::DragFloat2("head_tail_handle_width##editor", &EditorTheme.head_tail_handle_width.x);
+            ImGui::DragFloat("active_clip_raise##editor", &EditorTheme.active_clip_raise, 0.1);
+            ImGui::DragFloat("active_clip_raise_shadow_movement##editor", &EditorTheme.active_clip_raise_shadow_movement, 0.01);
         }
 
         if (ImGui::CollapsingHeader("Lister")) {
