@@ -1387,6 +1387,12 @@ void ThemeEditor(bool* p_open) {
             ImGui::ColorEdit4("start_time##editor", &EditorTheme.start_time.x);
             ImGui::ColorEdit4("current_time##editor", &EditorTheme.current_time.x);
             ImGui::ColorEdit4("end_time##editor", &EditorTheme.end_time.x);
+        	
+            ImGui::DragFloat("radius##editor", &EditorTheme.radius);
+            ImGui::DragFloat("spacing##editor", &EditorTheme.spacing);
+            ImGui::DragFloat("head_tail_handle_width##editor", &EditorTheme.head_tail_handle_width);
+            ImGui::DragFloat("active_clip_raise##editor", &EditorTheme.active_clip_raise);
+            ImGui::DragFloat("active_clip_raise_shadow_movement##editor", &EditorTheme.active_clip_raise_shadow_movement);
         }
 
         if (ImGui::CollapsingHeader("Lister")) {
