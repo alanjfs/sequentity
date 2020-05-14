@@ -353,24 +353,28 @@ static struct TimelineTheme_ {
 
 
 static struct EditorTheme_ {
-    ImVec4 background    { ImColor::HSV(0.0f, 0.00f, 0.651f) };
-    ImVec4 alternate     { ImColor::HSV(0.0f, 0.00f, 0.0f, 0.02f) };
-    ImVec4 text          { ImColor::HSV(0.0f, 0.00f, 0.950f) };
-    ImVec4 mid           { ImColor::HSV(0.0f, 0.00f, 0.600f) };
-    ImVec4 dark          { ImColor::HSV(0.0f, 0.00f, 0.498f) };
-    ImVec4 accent        { ImColor::HSV(0.0f, 0.75f, 0.750f) };
-    ImVec4 accent_light  { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
-    ImVec4 accent_dark   { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
-    ImVec4 selection     { ImColor::HSV(0.0f, 0.0f, 1.0f) };
-    ImVec4 outline       { ImColor::HSV(0.0f, 0.0f, 0.1f) };
-    ImVec4 track         { ImColor::HSV(0.0f, 0.0f, 0.6f) };
+    ImVec4 background      { ImColor::HSV(0.0f, 0.00f, 0.651f) };
+    ImVec4 alternate       { ImColor::HSV(0.0f, 0.00f, 0.0f, 0.02f) };
+    ImVec4 text            { ImColor::HSV(0.0f, 0.00f, 0.950f) };
+    ImVec4 mid             { ImColor::HSV(0.0f, 0.00f, 0.600f) };
+    ImVec4 dark            { ImColor::HSV(0.0f, 0.00f, 0.498f) };
+    ImVec4 accent          { ImColor::HSV(0.0f, 0.75f, 0.750f) };
+    ImVec4 accent_light    { ImColor::HSV(0.0f, 0.5f, 1.0f, 0.1f) };
+    ImVec4 accent_dark     { ImColor::HSV(0.0f, 0.0f, 0.0f, 0.1f) };
+    ImVec4 selection       { ImColor::HSV(0.0f, 0.0f, 1.0f) };
+    ImVec4 outline         { ImColor::HSV(0.0f, 0.0f, 0.1f) };
+    ImVec4 track           { ImColor::HSV(0.0f, 0.0f, 0.6f) };
+    ImVec4 head_tail_hover { ImColor::HSV(0.0f, 0.0f, 1.0f, 0.25f) };
 
-    ImVec4 start_time    { ImColor::HSV(0.33f, 0.0f, 0.25f) };
-    ImVec4 current_time  { ImColor::HSV(0.6f, 0.5f, 0.5f) };
-    ImVec4 end_time      { ImColor::HSV(0.0f, 0.0f, 0.25f) };
+    ImVec4 start_time      { ImColor::HSV(0.33f, 0.0f, 0.25f) };
+    ImVec4 current_time    { ImColor::HSV(0.6f, 0.5f, 0.5f) };
+    ImVec4 end_time        { ImColor::HSV(0.0f, 0.0f, 0.25f) };
     
     float radius { 0.0f };
     float spacing { 1.0f };
+    ImVec2 head_tail_handle_width { 10.0f, 100.0f };
+    float active_clip_raise { 5.0f };
+    float active_clip_raise_shadow_movement { 0.25f };
 
 } EditorTheme;
 
@@ -882,26 +886,94 @@ void EventEditor(entt::registry& registry) {
 
                     ImVec2 pos { time_to_px(event.time), 0.0f };
                     ImVec2 size { time_to_px(event.length), state.zoom[1] };
-                    ImVec2 head_size { 10.0f, size.y };
-                    ImVec2 tail_size { 10.0f, size.y };
+
+                    ImVec2 head_tail_size
+                    {
+                        std::min(EditorTheme.head_tail_handle_width.y,
+                            std::max(EditorTheme.head_tail_handle_width.x, size.x / 6)
+                        ),
+                        size.y
+                    };
+                    ImVec2 tail_pos{ pos.x + size.x - head_tail_size.x , pos.y };
+
+                    ImVec2 body_pos{ pos.x + head_tail_size.x, pos.y };
+                    ImVec2 body_size{ size.x - 2 * head_tail_size.x, size.y };
 
                     // Transitions
                     float target_height { 0.0f };
                     float target_thickness = 0.0f;
 
-                    /** TODO: Implement crop interaction and visualisation
+                    /** Implement crop interaction and visualisation
                          ____________________________________
                         |      |                      |      |
                         | head |         body         | tail |
                         |______|______________________|______|
 
                     */
+                    static int initial_time { 0 };
+                    static int initial_length { 0 };
 
                     ImGui::PushID(track.label);
                     ImGui::PushID(event_count);
+
+                    #pragma region EventHead
                     ImGui::SetCursorPos(cursor + pos - ImGui::GetWindowPos());
                     ImGui::SetItemAllowOverlap();
-                    ImGui::InvisibleButton("##event", size);
+                    ImGui::InvisibleButton("##event_head", head_tail_size);
+
+                    bool head_hovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+
+                    if (ImGui::IsItemActivated()) {
+                        initial_time = event.time;
+                        initial_length = event.length;
+                        state.selected_event = &event;
+                    }
+
+                    if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
+                        float delta = ImGui::GetMouseDragDelta().x;
+                        event.time = initial_time + px_to_time(delta);
+                        event.length = initial_length - px_to_time(delta);
+                        event.removed = (
+                            event.time > state.range[1] ||
+                            event.time + event.length < state.range[0]
+                            );
+
+                        event.enabled = !event.removed;
+                        target_height = EditorTheme.active_clip_raise / 2;
+                    }
+                    #pragma endregion EventHead
+
+                    #pragma region EventTail
+                    ImGui::SetCursorPos(cursor + tail_pos - ImGui::GetWindowPos());
+                    ImGui::SetItemAllowOverlap();
+                    ImGui::InvisibleButton("##event_tail", head_tail_size);
+
+                    bool tail_hovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+
+                    if (ImGui::IsItemActivated()) {
+                        initial_time = event.time;
+                        initial_length = event.length;
+                        state.selected_event = &event;
+                    }
+
+                    if (!ImGui::GetIO().KeyAlt && ImGui::IsItemActive()) {
+                        float delta = ImGui::GetMouseDragDelta().x;
+                        event.length = initial_length + px_to_time(delta);
+                        event.removed = (
+                            event.time > state.range[1] ||
+                            event.time + event.length < state.range[0]
+                            );
+                        
+                        event.enabled = !event.removed;
+                        target_height = EditorTheme.active_clip_raise / 2;
+                    }
+                    #pragma endregion EventTail
+                    
+                    #pragma region EventBody
+                    ImGui::SetCursorPos(cursor + body_pos - ImGui::GetWindowPos());
+                    ImGui::SetItemAllowOverlap();
+                    ImGui::InvisibleButton("##event", body_size);
+                
                     ImGui::PopID();
                     ImGui::PopID();
 
@@ -912,14 +984,14 @@ void EventEditor(entt::registry& registry) {
                     }
 
                     else if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
                         target_thickness = 2.0f;
                     }
 
                     // User Input
-                    static int initial_time { 0 };
-
                     if (ImGui::IsItemActivated()) {
                         initial_time = event.time;
+                        initial_length = event.length;
                         state.selected_event = &event;
                     }
 
@@ -932,16 +1004,19 @@ void EventEditor(entt::registry& registry) {
                         );
 
                         event.enabled = !event.removed;
-                        target_height = 5.0f;
+                        target_height = EditorTheme.active_clip_raise;
                     }
+                    #pragma endregion EventBody
 
                     _transition(event.height, target_height, CommonTheme.transition_speed);
                     pos -= event.height;
+                    tail_pos -= event.height;
 
                     const int shadow = 2;
+                    float shadow_movement = event.height * (1.0f + EditorTheme.active_clip_raise_shadow_movement);
                     painter->AddRectFilled(
-                        cursor + pos + shadow + event.height * 1.25f,
-                        cursor + pos + size + shadow + event.height * 1.25f,
+                        cursor + pos + shadow + shadow_movement,
+                        cursor + pos + size + shadow + shadow_movement,
                         ImColor::HSV(0.0f, 0.0f, 0.0f, 0.3f), EditorTheme.radius
                     );
 
@@ -958,7 +1033,7 @@ void EventEditor(entt::registry& registry) {
                         ImColor(color * 0.8f), EditorTheme.radius
                     );
 
-                    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || state.selected_event == &event) {
+                    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || head_hovered || tail_hovered || state.selected_event == &event) {
                         painter->AddRect(
                             cursor + pos        + event.thickness * 0.25f,
                             cursor + pos + size - event.thickness * 0.25f,
@@ -972,9 +1047,29 @@ void EventEditor(entt::registry& registry) {
                             ImColor(EditorTheme.outline), EditorTheme.radius
                         );
                     }
+                    
+                    if (head_hovered)
+                    {
+                        painter->AddRectFilled(
+                            cursor + pos,
+                            cursor + pos + head_tail_size,
+                            ImColor(EditorTheme.head_tail_hover), EditorTheme.radius
+                        );
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    }
+
+                    if (tail_hovered)
+                    {
+                        painter->AddRectFilled(
+                            cursor + tail_pos,
+                            cursor + tail_pos + head_tail_size,
+                            ImColor(EditorTheme.head_tail_hover), EditorTheme.radius
+                        );
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    }
 
                     if (event.enabled) {
-                        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                        if (ImGui::IsItemHovered() || ImGui::IsItemActive() || head_hovered || tail_hovered) {
                             if (event.length > 5.0f) {
                                 painter->AddText(
                                     ImGui::GetFont(),
@@ -984,7 +1079,7 @@ void EventEditor(entt::registry& registry) {
                                     std::to_string(event.time).c_str()
                                 );
                             }
-                            
+                        
                             if (event.length > 30.0f) {
                                 painter->AddText(
                                     ImGui::GetFont(),
@@ -1295,10 +1390,17 @@ void ThemeEditor(bool* p_open) {
             ImGui::ColorEdit4("mid##editor", &EditorTheme.mid.x);
             ImGui::ColorEdit4("dark##editor", &EditorTheme.dark.x);
             ImGui::ColorEdit4("accent##editor", &EditorTheme.accent.x);
+            ImGui::ColorEdit4("head_tail_hover##editor", &EditorTheme.head_tail_hover.x);
 
             ImGui::ColorEdit4("start_time##editor", &EditorTheme.start_time.x);
             ImGui::ColorEdit4("current_time##editor", &EditorTheme.current_time.x);
             ImGui::ColorEdit4("end_time##editor", &EditorTheme.end_time.x);
+            
+            ImGui::DragFloat("radius##editor", &EditorTheme.radius);
+            ImGui::DragFloat("spacing##editor", &EditorTheme.spacing);
+            ImGui::DragFloat2("head_tail_handle_width##editor", &EditorTheme.head_tail_handle_width.x);
+            ImGui::DragFloat("active_clip_raise##editor", &EditorTheme.active_clip_raise, 0.1);
+            ImGui::DragFloat("active_clip_raise_shadow_movement##editor", &EditorTheme.active_clip_raise_shadow_movement, 0.01);
         }
 
         if (ImGui::CollapsingHeader("Lister")) {
