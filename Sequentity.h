@@ -903,7 +903,7 @@ void EventEditor(entt::registry& registry) {
                     float target_height { 0.0f };
                     float target_thickness = 0.0f;
 
-                    /** TO REVIEW: Implement crop interaction and visualisation
+                    /** Implement crop interaction and visualisation
                          ____________________________________
                         |      |                      |      |
                         | head |         body         | tail |
