@@ -768,7 +768,7 @@ void EventEditor(entt::registry& registry) {
 
         ImGui::PushID(indicator_count);
         ImGui::SetCursorPos(topPos - ImVec2{ size.x, size.y } - ImGui::GetWindowPos());
-        ImGui::SetItemAllowOverlap(); // Prioritise the last drawn (shouldn't this be the default?)
+        ImGui::SetNextItemAllowOverlap(); // Prioritise the last drawn (shouldn't this be the default?)
         ImGui::InvisibleButton("##indicator", size * 2.0f);
         ImGui::PopID();
 
@@ -778,7 +778,7 @@ void EventEditor(entt::registry& registry) {
         }
 
         ImVec4 color = cursor_color;
-        if (ImGui::IsItemHovered()) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
             color = color * 1.2f;
         }
@@ -918,10 +918,10 @@ void EventEditor(entt::registry& registry) {
 
                     #pragma region EventHead
                     ImGui::SetCursorPos(cursor + pos - ImGui::GetWindowPos());
-                    ImGui::SetItemAllowOverlap();
+                    ImGui::SetNextItemAllowOverlap();
                     ImGui::InvisibleButton("##event_head", head_tail_size);
 
-                    bool head_hovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+                    bool head_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem) || ImGui::IsItemActive();
 
                     if (ImGui::IsItemActivated()) {
                         initial_time = event.time;
@@ -945,10 +945,10 @@ void EventEditor(entt::registry& registry) {
 
                     #pragma region EventTail
                     ImGui::SetCursorPos(cursor + tail_pos - ImGui::GetWindowPos());
-                    ImGui::SetItemAllowOverlap();
+                    ImGui::SetNextItemAllowOverlap();
                     ImGui::InvisibleButton("##event_tail", head_tail_size);
 
-                    bool tail_hovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+                    bool tail_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem) || ImGui::IsItemActive();
 
                     if (ImGui::IsItemActivated()) {
                         initial_time = event.time;
@@ -971,7 +971,7 @@ void EventEditor(entt::registry& registry) {
                     
                     #pragma region EventBody
                     ImGui::SetCursorPos(cursor + body_pos - ImGui::GetWindowPos());
-                    ImGui::SetItemAllowOverlap();
+                    ImGui::SetNextItemAllowOverlap();
                     ImGui::InvisibleButton("##event", body_size);
                 
                     ImGui::PopID();
@@ -983,7 +983,7 @@ void EventEditor(entt::registry& registry) {
                         color = ImColor::HSV(0.0f, 0.0f, 0.5f);
                     }
 
-                    else if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                    else if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem) || ImGui::IsItemActive()) {
                         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
                         target_thickness = 2.0f;
                     }
@@ -1033,11 +1033,11 @@ void EventEditor(entt::registry& registry) {
                         ImColor(color * 0.8f), EditorTheme.radius
                     );
 
-                    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || head_hovered || tail_hovered || state.selected_event == &event) {
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem) || ImGui::IsItemActive() || head_hovered || tail_hovered || state.selected_event == &event) {
                         painter->AddRect(
                             cursor + pos        + event.thickness * 0.25f,
                             cursor + pos + size - event.thickness * 0.25f,
-                            ImColor(EditorTheme.selection), EditorTheme.radius, ImDrawCornerFlags_All, event.thickness
+                            ImColor(EditorTheme.selection), EditorTheme.radius, ImDrawFlags_RoundCornersAll, event.thickness
                         );
                     }
                     else {
@@ -1069,7 +1069,7 @@ void EventEditor(entt::registry& registry) {
                     }
 
                     if (event.enabled) {
-                        if (ImGui::IsItemHovered() || ImGui::IsItemActive() || head_hovered || tail_hovered) {
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem) || ImGui::IsItemActive() || head_hovered || tail_hovered) {
                             if (event.length > 5.0f) {
                                 painter->AddText(
                                     ImGui::GetFont(),
@@ -1281,11 +1281,11 @@ void EventEditor(entt::registry& registry) {
     // Can intercept mouse events
     bool hovering_background { true };
     TimeIndicator(state.range[0], TimelineTheme.start_time, EditorTheme.start_time);
-    if (ImGui::IsItemHovered()) hovering_background = false;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) hovering_background = false;
     TimeIndicator(state.range[1], TimelineTheme.end_time, EditorTheme.end_time);
-    if (ImGui::IsItemHovered()) hovering_background = false;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) hovering_background = false;
     TimeIndicator(state.current_time, TimelineTheme.current_time, EditorTheme.current_time);
-    if (ImGui::IsItemHovered()) hovering_background = false;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) hovering_background = false;
 
     ListerBackground();
     Lister();
@@ -1310,7 +1310,7 @@ void EventEditor(entt::registry& registry) {
         ImGui::SetCursorPos({ 0.0f, titlebarHeight });
         ImGui::InvisibleButton("##mpan", ImVec2{ ListerTheme.width, TimelineTheme.height });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         const bool panM = (
             ImGui::IsItemActive() ||
             (ImGui::IsWindowFocused() && ImGui::GetIO().KeyAlt && ImGui::GetIO().MouseDown[0])
@@ -1327,7 +1327,7 @@ void EventEditor(entt::registry& registry) {
         ImGui::SetCursorPos({ ListerTheme.width, titlebarHeight });
         ImGui::InvisibleButton("##pan[0]", ImVec2{ windowSize.x, TimelineTheme.height });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         const bool panH = ImGui::IsItemActive();
 
         /** Vertical Pan
@@ -1341,7 +1341,7 @@ void EventEditor(entt::registry& registry) {
         ImGui::SetCursorPos({ ListerTheme.width - 110.0f, TimelineTheme.height + titlebarHeight });
         ImGui::InvisibleButton("##pan[1]", ImVec2{ ListerTheme.width, windowSize.y });
 
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem)) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         const bool panV = ImGui::IsItemActive();
 
         if (panM) {
